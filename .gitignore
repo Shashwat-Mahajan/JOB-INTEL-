@@ -1,0 +1,8 @@
+config/config.json
+logs/agent.log
+__pycache__/
+*.pyc
+.env
+*.egg-info/
+dist/
+.venv/

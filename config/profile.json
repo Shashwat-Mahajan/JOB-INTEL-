@@ -1,0 +1,226 @@
+{
+  "name": "Shashwat Mahajan",
+  "email": "shashwatmahajan2@gmail.com",
+  "phone": "+91-93569 97907",
+  "linkedin": "linkedin.com/in/shashwatmahajan2",
+  "github": "github.com/Shashwat-Mahajan",
+  "education": {
+    "degree": "B.Tech Computer Science Engineering",
+    "branch": "Computer Science Engineering",
+    "college": "Yeshwantrao Chavan College of Engineering, Nagpur",
+    "graduation_year": "2027",
+    "cgpa": "8.00 / 10"
+  },
+  "current_status": "Final year B.Tech student, interning as GenAI Engineer",
+  "technical_skills": {
+    "primary_languages": [
+      "Python",
+      "Java",
+      "JavaScript",
+      "C",
+      "SQL"
+    ],
+    "ai_ml": [
+      "LLMs",
+      "LangChain",
+      "RAG Pipelines",
+      "Prompt Engineering",
+      "Vector Embeddings",
+      "ChromaDB",
+      "HuggingFace",
+      "Groq API",
+      "XGBoost",
+      "Scikit-Learn",
+      "Pandas",
+      "Streamlit",
+      "MLflow",
+      "DagsHub",
+      "Experiment Tracking",
+      "SMOTE",
+      "RAGAS Evaluation"
+    ],
+    "backend": [
+      "React.js",
+      "Next.js",
+      "Node.js",
+      "Express.js",
+      "FastAPI",
+      "MongoDB",
+      "PostgreSQL",
+      "WebSockets",
+      "REST APIs"
+    ],
+    "cloud_devops": [
+      "Docker",
+      "GitHub Actions",
+      "CI/CD Pipelines",
+      "Git",
+      "Linux",
+      "JWT"
+    ],
+    "databases": [
+      "MongoDB",
+      "PostgreSQL"
+    ],
+    "frontend": [
+      "React.js"
+    ],
+    "other": [
+      "WebSockets",
+      "REST APIs",
+      "JWT"
+    ]
+  },
+  "competitive_programming": {
+    "leetcode_rating": "1538",
+    "leetcode_problems": "400+",
+    "codechef_rating": "2-Star",
+    "other": "Primary Languages: Python & Java"
+  },
+  "projects": [
+    {
+      "name": "Financial Analyst RAG System",
+      "description": "Deployed a production-grade RAG pipeline ingesting live financial news from 10+ sources, delivering sub-2s retrieval for real-time multi-company portfolio queries with full source citation",
+      "tech_stack": [
+        "Python",
+        "LangChain",
+        "ChromaDB",
+        "Groq API",
+        "HuggingFace Embeddings",
+        "Streamlit",
+        "AWS S3",
+        "GitHub Actions",
+        "RAGAS"
+      ],
+      "highlights": [
+        "Sub-2s retrieval for real-time multi-company portfolio queries",
+        "Automated continuous ingestion via GitHub Actions scheduled workflows"
+      ],
+      "status": "completed"
+    },
+    {
+      "name": "Smart Attendance System",
+      "description": "Led a 6-member cross-functional team at SIH National Hackathon: owned system architecture, sprint planning, task delegation, and live demo delivery",
+      "tech_stack": [
+        "MongoDB",
+        "Express.js",
+        "React.js",
+        "Node.js",
+        "Supabase",
+        "PostgreSQL",
+        "WebSockets"
+      ],
+      "highlights": [
+        "Real-time WebSocket synchronisation layer sustaining 100+ concurrent users with zero data loss",
+        "Rolling QR-based authentication to prevent replay attacks"
+      ],
+      "status": "completed"
+    },
+    {
+      "name": "Credit Risk Assessment System",
+      "description": "Architected a full-stack ML inference system for real-time credit risk predictions: React.js frontend \u2192 FastAPI backend \u2192 XGBoost classifier",
+      "tech_stack": [
+        "React.js",
+        "FastAPI",
+        "XGBoost",
+        "Docker",
+        "GitHub Actions",
+        "CI/CD"
+      ],
+      "highlights": [
+        "88% accuracy with 91% recall on the high-risk minority class",
+        "Containerised with Docker and implemented a GitHub Actions CI/CD pipeline"
+      ],
+      "status": "completed"
+    },
+    {
+      "name": "Job Intel Agent",
+      "description": "Multi-agent job discovery system using CrewAI + Groq + Ollama",
+      "tech_stack": [
+        "Python",
+        "CrewAI 1.x",
+        "Groq API",
+        "Ollama",
+        "BeautifulSoup",
+        "GitHub Actions"
+      ],
+      "highlights": [
+        "Fetches from 15 sources, scores with LLaMA 70B intent matching"
+      ],
+      "status": "in-progress"
+    }
+  ],
+  "experience": [
+    {
+      "role": "GenAI Engineer Intern",
+      "company": "Persistent Systems",
+      "duration": "Jan 2026 \u2013 Present",
+      "description": "Reduced vector retrieval p95 latency by ~60% through hybrid dense-sparse indexing and retrieval caching, directly improving response quality for 3 production GenAI features serving live end users"
+    }
+  ],
+  "achievements": [
+    "Competitive Programming: LeetCode Rating 1538 \u2014 400+ problems solved",
+    "CodeChef 2-Star",
+    "Certifications: Machine Learning Specialization \u2014 Codebasics.io",
+    "Full Stack Web Development (MERN Stack)"
+  ],
+  "hackathons": [
+    {
+      "name": "DevOnboard \u2014 AI-Powered Repository Intelligence Platform",
+      "result": "Participant",
+      "description": "Built an AI platform that ingests any GitHub repository via URL, parses its structure, README, and source code, and returns cited, context-aware answers to developer onboarding questions"
+    },
+    {
+      "name": "SITNOVATE \u2014 Real-Time Chat Engine",
+      "result": "Participant",
+      "description": "Designed and shipped a JWT-secured, real-time WebSocket chat system entirely within 24 hours"
+    }
+  ],
+  "publications": [],
+  "target_roles": [
+    "GenAI Engineer",
+    "ML Engineer",
+    "Software Engineer - AI",
+    "Backend Engineer",
+    "Data Engineer"
+  ],
+  "target_companies": [
+    "Amazon",
+    "Microsoft",
+    "Google",
+    "Flipkart",
+    "Swiggy",
+    "Meesho",
+    "Razorpay",
+    "PhonePe",
+    "Atlassian",
+    "Adobe",
+    "Walmart Global Tech",
+    "Oracle",
+    "JPMorgan",
+    "Uber",
+    "Samsung R&D",
+    "Nutanix",
+    "Qualcomm",
+    "NVIDIA"
+  ],
+  "location_preferences": [
+    "Bengaluru",
+    "Pune",
+    "Hyderabad",
+    "Mumbai",
+    "NCR",
+    "Remote India"
+  ],
+  "graduation_batch": "2027",
+  "experience_level": "fresher",
+  "max_experience_years": 2,
+  "hard_vetoes": [
+    "IT outsourcing firms (TCS/Infosys/Wipro/Accenture/Cognizant/HCL) unless title explicitly says AI/ML/GenAI",
+    "Roles requiring 3+ years experience without fresher mention",
+    "Pure DevOps, Network Engineer, Hardware, Sales, non-tech roles",
+    "Unpaid internships",
+    "Outside India unless fully remote"
+  ],
+  "_scoring_prompt": "CANDIDATE: Shashwat Mahajan\nSTATUS: Final year B.Tech student, interning as GenAI Engineer\nEDUCATION: B.Tech Computer Science Engineering in Computer Science Engineering from Yeshwantrao Chavan College of Engineering, Nagpur\nGRADUATION: 2027 batch | CGPA: 8.00 / 10\nEXPERIENCE LEVEL: fresher (max 2 years)\n\nTECHNICAL SKILLS:\nPython, Java, JavaScript, C, SQL, LLMs, LangChain, RAG Pipelines, Prompt Engineering, Vector Embeddings, ChromaDB, HuggingFace, Groq API, XGBoost, Scikit-Learn, Pandas, Streamlit, MLflow, DagsHub, Experiment Tracking, SMOTE, RAGAS Evaluation, React.js, Next.js, Node.js, Express.js, FastAPI, MongoDB, PostgreSQL, WebSockets, REST APIs, Docker, GitHub Actions, CI/CD Pipelines, Git, Linux, JWT, MongoDB, PostgreSQL, React.js, WebSockets, REST APIs, JWT\n\nCOMPETITIVE PROGRAMMING:\nLeetCode: 1538 rating, 400+ problems solved\nCodeChef: 2-Star\nPrimary Languages: Python & Java\n\nKEY PROJECTS:\n- Financial Analyst RAG System: Deployed a production-grade RAG pipeline ingesting live financial news from 10+ sources, delivering sub-2s retrieval for real-time multi-company portfolio queries with full source citation Stack: Python, LangChain, ChromaDB, Groq API, HuggingFace Embeddings, Streamlit, AWS S3, GitHub Actions, RAGAS. Sub-2s retrieval for real-time multi-company portfolio queries; Automated continuous ingestion via GitHub Actions scheduled workflows\n- Smart Attendance System: Led a 6-member cross-functional team at SIH National Hackathon: owned system architecture, sprint planning, task delegation, and live demo delivery Stack: MongoDB, Express.js, React.js, Node.js, Supabase, PostgreSQL, WebSockets. Real-time WebSocket synchronisation layer sustaining 100+ concurrent users with zero data loss; Rolling QR-based authentication to prevent replay attacks\n- Credit Risk Assessment System: Architected a full-stack ML inference system for real-time credit risk predictions: React.js frontend \u2192 FastAPI backend \u2192 XGBoost classifier Stack: React.js, FastAPI, XGBoost, Docker, GitHub Actions, CI/CD. 88% accuracy with 91% recall on the high-risk minority class; Containerised with Docker and implemented a GitHub Actions CI/CD pipeline\n- Job Intel Agent: Multi-agent job discovery system using CrewAI + Groq + Ollama Stack: Python, CrewAI 1.x, Groq API, Ollama, BeautifulSoup, GitHub Actions. Fetches from 15 sources, scores with LLaMA 70B intent matching\n\nWORK EXPERIENCE:\n- GenAI Engineer Intern at Persistent Systems (Jan 2026 \u2013 Present): Reduced vector retrieval p95 latency by ~60% through hybrid dense-sparse indexing and retrieval caching, directly improving response quality for 3 production GenAI features serving live end users\n\nACHIEVEMENTS: Competitive Programming: LeetCode Rating 1538 \u2014 400+ problems solved; CodeChef 2-Star; Certifications: Machine Learning Specialization \u2014 Codebasics.io; Full Stack Web Development (MERN Stack)\nHACKATHONS: DevOnboard \u2014 AI-Powered Repository Intelligence Platform (Participant); SITNOVATE \u2014 Real-Time Chat Engine (Participant)\nPUBLICATIONS: \n\nTARGET ROLES (priority order): GenAI Engineer, ML Engineer, Software Engineer - AI, Backend Engineer, Data Engineer\nTARGET COMPANIES: Amazon, Microsoft, Google, Flipkart, Swiggy, Meesho, Razorpay, PhonePe, Atlassian, Adobe, Walmart Global Tech, Oracle, JPMorgan, Uber, Samsung R&D, Nutanix, Qualcomm, NVIDIA\nPREFERRED LOCATIONS: Bengaluru, Pune, Hyderabad, Mumbai, NCR, Remote India\n\nHARD VETOES (auto-disqualify):\n- IT outsourcing firms (TCS/Infosys/Wipro/Accenture/Cognizant/HCL) unless title explicitly says AI/ML/GenAI\n- Roles requiring 3+ years experience without fresher mention\n- Pure DevOps, Network Engineer, Hardware, Sales, non-tech roles\n- Unpaid internships\n- Outside India unless fully remote"
+}
