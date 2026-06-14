@@ -20,15 +20,16 @@ PROFILE_OUT = BASE / "config" / "profile.json"
 CURRENT_PROJECTS = """
 PROJECT I AM CURRENTLY WORKING ON:
 
-1. Job Intel Agent (this system):
-   - Multi-agent job discovery system using CrewAI + Groq + Ollama
-   - Scout, Analyst, Verifier, Reporter agents
-   - Fetches from 15 sources, scores with LLaMA 70B intent matching
-   - Stack: Python, CrewAI 1.x, Groq API, Ollama, BeautifulSoup, GitHub Actions
+Job Intel Agent (this system):
+- Multi-agent job discovery system using CrewAI + Groq + Ollama
+- Scout agent fetches jobs from 15 sources (LinkedIn, Naukri, Amazon, Google, etc.)
+- Analyst agent scores jobs using Groq llama-3.3-70b-versatile with intent matching
+- Verifier agent does second-pass accuracy check on HIGH priority jobs
+- Reporter agent builds HTML digest and sends via Brevo SMTP
+- Fully automated via GitHub Actions daily cron at 8 AM IST
+- Stack: Python, CrewAI 1.x, Groq API, Ollama, BeautifulSoup, GitHub Actions
 
-2. (Add your next project here)
-   - Description
-   - Stack
+(Add any other current projects here before running this script)
 """
 
 

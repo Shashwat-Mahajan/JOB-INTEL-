@@ -1,0 +1,7 @@
+# Minimal deps for JobIntel Agent (install with: pip install -r requirements-min.txt)
+crewai
+groq
+requests
+beautifulsoup4
+lxml
+pymupdf

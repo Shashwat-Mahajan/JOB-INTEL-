@@ -1,8 +1,7 @@
 """
 sources/naukri.py
-Naukri fresher job scraper.
-Extracts structured data from JSON-LD blocks embedded in Naukri pages.
-No API key required — uses public-facing search URLs.
+Naukri fresher job scraper — extracts JSON-LD structured data.
+No API key required.
 """
 
 import re
@@ -17,7 +16,7 @@ log = logging.getLogger(__name__)
 
 HEADERS = {
     "User-Agent": (
-        "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
+        "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/124.0.0.0 Safari/537.36"
     ),
@@ -25,7 +24,6 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-# Naukri fresher search pages — these target 0–2 year experience
 NAUKRI_SLUGS = [
     "generative-ai-jobs",
     "machine-learning-engineer-fresher-jobs",
@@ -35,15 +33,15 @@ NAUKRI_SLUGS = [
     "python-developer-fresher-jobs",
     "data-scientist-fresher-jobs",
     "backend-developer-fresher-jobs",
+    "software-engineer-jobs-for-freshers",
+    "artificial-intelligence-jobs",
+    "deep-learning-jobs",
 ]
 
 
-def fetch_naukri() -> list[dict]:
-    """
-    Scrape Naukri's structured job data from JSON-LD blocks.
-    These are embedded in the page source and follow the JobPosting schema.
-    """
-    jobs = []
+def fetch_naukri() -> list:
+    """Scrape Naukri's structured job data from JSON-LD blocks."""
+    jobs     = []
     seen_ids = set()
 
     for slug in NAUKRI_SLUGS:
@@ -51,15 +49,13 @@ def fetch_naukri() -> list[dict]:
             url = f"https://www.naukri.com/{slug}"
             r   = requests.get(url, headers=HEADERS, timeout=20)
             if r.status_code != 200:
-                log.debug(f"Naukri {slug}: HTTP {r.status_code}")
                 time.sleep(1)
                 continue
 
-            # Extract all JSON-LD blocks from the page
             ld_blocks = re.findall(
-                r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>(.*?)</script>',
-                r.text,
-                re.DOTALL,
+                r'<script[^>]+type=["\']application/ld\+json["\'][^>]*>'
+                r'(.*?)</script>',
+                r.text, re.DOTALL
             )
 
             for block in ld_blocks:
@@ -68,7 +64,6 @@ def fetch_naukri() -> list[dict]:
                 except json.JSONDecodeError:
                     continue
 
-                # Handle both single items and @graph arrays
                 items = []
                 if isinstance(data, list):
                     items = data
@@ -89,16 +84,14 @@ def fetch_naukri() -> list[dict]:
                     if not title:
                         continue
 
-                    # Build a stable ID from title + company
                     company = job.get("hiringOrganization", {}).get("name", "Unknown")
-                    raw_id  = f"naukri_{title}_{company}".lower()
+                    raw_id  = f"{title}_{company}".lower()
                     jid     = "nk_" + hashlib.md5(raw_id.encode()).hexdigest()[:10]
 
                     if jid in seen_ids:
                         continue
                     seen_ids.add(jid)
 
-                    # Extract location
                     loc_obj  = job.get("jobLocation", {})
                     address  = loc_obj.get("address", {}) if isinstance(loc_obj, dict) else {}
                     location = address.get("addressLocality", "India")
