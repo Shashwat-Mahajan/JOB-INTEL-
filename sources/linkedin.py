@@ -27,22 +27,34 @@ HEADERS = {
 # f_E=1,2 = entry level + associate
 # f_TPR=r604800 = posted in last 7 days
 LINKEDIN_SEARCHES = [
-    ("generative AI engineer",            "India"),
-    ("LLM engineer",                      "India"),
+    # Full-time fresher roles
+    ("generative AI engineer fresher",    "India"),
+    ("LLM engineer fresher",              "India"),
     ("machine learning engineer fresher", "India"),
     ("AI engineer 2027",                  "India"),
-    ("software engineer AI",              "India"),
-    ("backend engineer python",           "India"),
-    ("SDE fresher",                       "India"),
+    ("software engineer AI fresher",      "India"),
+    ("backend engineer python fresher",   "India"),
+    ("SDE fresher 2027",                  "India"),
     ("data scientist fresher",            "India"),
-    ("NLP engineer",                      "India"),
-    ("MLOps engineer",                    "India"),
+    ("NLP engineer fresher",              "India"),
+    ("MLOps engineer fresher",            "India"),
+    # Internships
+    ("machine learning intern",           "India"),
+    ("AI intern",                         "India"),
+    ("software engineer intern",          "India"),
+    ("data science intern",               "India"),
+    ("generative AI intern",              "India"),
+    ("LLM intern",                        "India"),
+    ("backend developer intern python",   "India"),
+    ("NLP intern",                        "India"),
+    ("deep learning intern",              "India"),
+    ("research intern AI",                "India"),
+    # City-specific
     ("software engineer",                 "Bengaluru, Karnataka, India"),
     ("machine learning",                  "Bengaluru, Karnataka, India"),
     ("AI engineer",                       "Hyderabad, Telangana, India"),
-    ("software engineer",                 "Pune, Maharashtra, India"),
-    ("data scientist",                    "Hyderabad, Telangana, India"),
-    ("software engineer",                 "Mumbai, Maharashtra, India"),
+    ("software engineer intern",          "Bengaluru, Karnataka, India"),
+    ("machine learning intern",           "Bengaluru, Karnataka, India"),
 ]
 
 
@@ -63,7 +75,7 @@ def fetch_linkedin(keywords: list, location: str = "India") -> list:
                     "https://www.linkedin.com/jobs-guest/jobs/api/"
                     "seeMoreJobPostings/search"
                     f"?keywords={q}&location={l}"
-                    f"&f_E=1,2"
+                    f"&f_E=1,2,3"   # 1=entry, 2=associate, 3=internship
                     f"&f_TPR=r604800"
                     f"&start={start}"
                 )

@@ -1,12 +1,16 @@
 """
-sources/public_apis.py — expanded with more reliable sources
+sources/public_apis.py
+Free public job APIs — no authentication required.
+Sources: Remotive, Arbeitnow, Jobicy, Himalayas, Freshersworld
 """
 
+import json
 import time
 import hashlib
 import logging
 import requests
 from datetime import datetime, date
+from bs4 import BeautifulSoup
 
 log = logging.getLogger(__name__)
 
@@ -15,11 +19,13 @@ HEADERS = {
         "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
         "AppleWebKit/537.36 (KHTML, like Gecko) "
         "Chrome/124.0.0.0 Safari/537.36"
-    )
+    ),
+    "Accept": "application/json, text/html, */*",
+    "Accept-Language": "en-US,en;q=0.9",
 }
 
 
-def _make_id(source: str, val: str) -> str:
+def _id(source: str, val: str) -> str:
     h = hashlib.md5(f"{source}_{val}".lower().encode()).hexdigest()[:10]
     return f"{source}_{h}"
 
@@ -35,18 +41,12 @@ def _is_recent(date_str: str, days: int = 7) -> bool:
 
 
 def fetch_remotive(keywords: list) -> list:
-    """Remotive public API — remote tech jobs, no auth."""
-    jobs = []
-    # Use broader categories instead of specific keywords
-    categories = [
-        "software-dev",
-        "data",
-        "devops-sysadmin",
-        "product",
-    ]
+    """Remotive — free remote tech jobs API, no auth, category-based."""
+    jobs     = []
     seen_ids = set()
+    categories = ["software-dev", "data", "devops-sysadmin", "product"]
+
     try:
-        # First try category-based fetch (returns more results)
         for cat in categories:
             url = f"https://remotive.com/api/remote-jobs?category={cat}&limit=50"
             r   = requests.get(url, headers=HEADERS, timeout=15)
@@ -58,14 +58,13 @@ def fetch_remotive(keywords: list) -> list:
                     continue
                 seen_ids.add(jid)
                 title = j.get("title", "").lower()
-                # Filter for relevant roles
                 if not any(k in title for k in [
                     "engineer", "developer", "scientist", "analyst",
                     "ml", "ai", "data", "backend", "python", "nlp"
                 ]):
                     continue
                 jobs.append({
-                    "job_id":      _make_id("remotive", jid),
+                    "job_id":      _id("remotive", jid),
                     "title":       j.get("title", ""),
                     "company":     j.get("company_name", ""),
                     "location":    j.get("candidate_required_location", "Worldwide"),
@@ -75,14 +74,15 @@ def fetch_remotive(keywords: list) -> list:
                     "source":      "Remotive",
                 })
             time.sleep(0.5)
-        log.info(f"Remotive: {len(jobs)} jobs")
     except Exception as e:
         log.error(f"Remotive error: {e}")
+
+    log.info(f"Remotive: {len(jobs)} jobs")
     return jobs
 
 
 def fetch_arbeitnow(keywords: list) -> list:
-    """Arbeitnow — European + remote tech jobs."""
+    """Arbeitnow — European + remote tech jobs, free API."""
     jobs = []
     try:
         r = requests.get(
@@ -95,7 +95,7 @@ def fetch_arbeitnow(keywords: list) -> list:
                 if not any(k.lower() in combined for k in keywords):
                     continue
                 jobs.append({
-                    "job_id":      _make_id("arbeitnow", j.get("slug", j.get("title",""))),
+                    "job_id":      _id("arbeitnow", j.get("slug", j.get("title",""))),
                     "title":       j.get("title", ""),
                     "company":     j.get("company_name", ""),
                     "location":    j.get("location", "Remote"),
@@ -104,14 +104,15 @@ def fetch_arbeitnow(keywords: list) -> list:
                     "posted":      date.today().isoformat(),
                     "source":      "Arbeitnow",
                 })
-        log.info(f"Arbeitnow: {len(jobs)} jobs")
     except Exception as e:
         log.error(f"Arbeitnow error: {e}")
+
+    log.info(f"Arbeitnow: {len(jobs)} jobs")
     return jobs
 
 
 def fetch_jobicy(keywords: list) -> list:
-    """Jobicy — remote tech jobs."""
+    """Jobicy — remote tech jobs, tag-based search."""
     jobs = []
     tags = ["software-engineer", "machine-learning", "data-engineer",
             "backend", "python", "ai"]
@@ -128,7 +129,7 @@ def fetch_jobicy(keywords: list) -> list:
                 if not any(k.lower() in combined for k in keywords):
                     continue
                 jobs.append({
-                    "job_id":      _make_id("jobicy", str(j.get("id", j.get("jobTitle","")))),
+                    "job_id":      _id("jobicy", str(j.get("id", j.get("jobTitle","")))),
                     "title":       j.get("jobTitle", ""),
                     "company":     j.get("companyName", ""),
                     "location":    j.get("jobGeo", "Remote"),
@@ -138,18 +139,34 @@ def fetch_jobicy(keywords: list) -> list:
                     "source":      "Jobicy",
                 })
             time.sleep(0.5)
-        log.info(f"Jobicy: {len(jobs)} jobs")
     except Exception as e:
         log.error(f"Jobicy error: {e}")
+
+    log.info(f"Jobicy: {len(jobs)} jobs")
     return jobs
 
 
 def fetch_himalayas(keywords: list) -> list:
-    """Himalayas.app — free remote jobs API, no auth, great for tech."""
-    jobs = []
+    """Himalayas.app — free remote jobs API, no auth, great for tech roles."""
+    jobs     = []
+    seen_ids = set()
+    searches = [
+        "machine learning engineer",
+        "software engineer AI",
+        "backend engineer python",
+        "data scientist",
+        "AI engineer",
+        "NLP engineer",
+        "generative AI",
+        "LLM engineer",
+        "machine learning intern",
+        "software engineer intern",
+        "AI intern",
+        "data science intern",
+        "backend intern",
+    ]
     try:
-        for kw in ["machine learning", "software engineer", "AI engineer",
-                   "backend engineer", "data scientist", "python developer"]:
+        for kw in searches:
             url = f"https://himalayas.app/jobs/api?q={requests.utils.quote(kw)}&limit=20"
             r   = requests.get(url, headers=HEADERS, timeout=15)
             if r.status_code != 200:
@@ -157,11 +174,18 @@ def fetch_himalayas(keywords: list) -> list:
             data  = r.json()
             items = data if isinstance(data, list) else data.get("jobs", [])
             for j in items:
-                title = j.get("title", j.get("position", ""))
+                jid = str(j.get("id", ""))
+                if jid in seen_ids:
+                    continue
+                seen_ids.add(jid)
+                title   = j.get("title", j.get("position", ""))
+                company = j.get("company", {})
+                if isinstance(company, dict):
+                    company = company.get("name", "")
                 jobs.append({
-                    "job_id":      _make_id("himalayas", str(j.get("id", title))),
+                    "job_id":      _id("himalayas", jid or title),
                     "title":       title,
-                    "company":     j.get("company", {}).get("name", j.get("companyName", "")),
+                    "company":     company,
                     "location":    j.get("location", "Remote"),
                     "description": (j.get("description") or "")[:1200],
                     "url":         j.get("url", j.get("applyUrl", "")),
@@ -169,83 +193,45 @@ def fetch_himalayas(keywords: list) -> list:
                     "source":      "Himalayas",
                 })
             time.sleep(0.8)
-        log.info(f"Himalayas: {len(jobs)} jobs")
     except Exception as e:
         log.error(f"Himalayas error: {e}")
-    return jobs
 
-
-def fetch_otta(keywords: list) -> list:
-    """Otta — tech jobs platform, good for startups and scale-ups."""
-    jobs = []
-    try:
-        url = "https://app.otta.com/api/jobs/search"
-        for kw in ["machine learning", "software engineer", "AI"]:
-            try:
-                r = requests.post(
-                    url,
-                    json={"query": kw, "locations": ["India"], "remote": True},
-                    headers={**HEADERS, "Content-Type": "application/json"},
-                    timeout=15,
-                )
-                if r.status_code != 200:
-                    continue
-                for j in r.json().get("results", r.json().get("jobs", [])):
-                    title = j.get("title", j.get("function", ""))
-                    jobs.append({
-                        "job_id":      _make_id("otta", str(j.get("id", title))),
-                        "title":       title,
-                        "company":     j.get("company", {}).get("name", ""),
-                        "location":    j.get("location", "Remote"),
-                        "description": (j.get("bullets", {}).get("engineering", [""])[0] or "")[:1200],
-                        "url":         f"https://app.otta.com/jobs/{j.get('externalId', j.get('id',''))}",
-                        "posted":      date.today().isoformat(),
-                        "source":      "Otta",
-                    })
-                time.sleep(1)
-            except Exception:
-                pass
-        log.info(f"Otta: {len(jobs)} jobs")
-    except Exception as e:
-        log.error(f"Otta error: {e}")
+    log.info(f"Himalayas: {len(jobs)} jobs")
     return jobs
 
 
 def fetch_freshersworld(keywords: list) -> list:
-    """Freshersworld — India's dedicated fresher job portal."""
+    """Freshersworld — India's dedicated fresher job portal, JSON-LD scrape."""
     jobs = []
+    urls = [
+        "https://www.freshersworld.com/jobs/jobsearch/machine-learning-engineer-jobs-for-freshers?job_type=fresher",
+        "https://www.freshersworld.com/jobs/jobsearch/artificial-intelligence-jobs-for-freshers?job_type=fresher",
+        "https://www.freshersworld.com/jobs/jobsearch/software-engineer-jobs-for-freshers?job_type=fresher",
+        "https://www.freshersworld.com/jobs/jobsearch/python-developer-jobs-for-freshers?job_type=fresher",
+        "https://www.freshersworld.com/jobs/jobsearch/data-scientist-jobs-for-freshers?job_type=fresher",
+        "https://www.freshersworld.com/jobs/jobsearch/backend-developer-jobs-for-freshers?job_type=fresher",
+    ]
     try:
-        searches = [
-            "https://www.freshersworld.com/jobs/jobsearch/machine-learning-engineer-jobs-for-freshers?job_type=fresher",
-            "https://www.freshersworld.com/jobs/jobsearch/artificial-intelligence-jobs-for-freshers?job_type=fresher",
-            "https://www.freshersworld.com/jobs/jobsearch/software-engineer-jobs-for-freshers?job_type=fresher",
-            "https://www.freshersworld.com/jobs/jobsearch/python-developer-jobs-for-freshers?job_type=fresher",
-            "https://www.freshersworld.com/jobs/jobsearch/data-scientist-jobs-for-freshers?job_type=fresher",
-        ]
-        from bs4 import BeautifulSoup
-        import re
-
-        for url in searches:
+        for url in urls:
             r = requests.get(url, headers=HEADERS, timeout=20)
             if r.status_code != 200:
                 continue
             soup = BeautifulSoup(r.text, "html.parser")
-
-            # Extract JSON-LD job postings
             for script in soup.find_all("script", type="application/ld+json"):
                 try:
-                    import json as _json
-                    data  = _json.loads(script.string)
+                    data  = json.loads(script.string)
                     items = data if isinstance(data, list) else [data]
                     for item in items:
                         if item.get("@type") != "JobPosting":
                             continue
                         title = item.get("title", "")
-                        org   = item.get("hiringOrganization", {})
-                        loc   = item.get("jobLocation", {})
-                        addr  = loc.get("address", {}) if isinstance(loc, dict) else {}
+                        if not title:
+                            continue
+                        org  = item.get("hiringOrganization", {})
+                        loc  = item.get("jobLocation", {})
+                        addr = loc.get("address", {}) if isinstance(loc, dict) else {}
                         jobs.append({
-                            "job_id":      _make_id("freshersworld", title + item.get("url","")),
+                            "job_id":      _id("freshersworld", title + item.get("url","")),
                             "title":       title,
                             "company":     org.get("name","") if isinstance(org,dict) else "",
                             "location":    addr.get("addressLocality","India"),
@@ -257,7 +243,8 @@ def fetch_freshersworld(keywords: list) -> list:
                 except Exception:
                     pass
             time.sleep(1.5)
-        log.info(f"Freshersworld: {len(jobs)} jobs")
     except Exception as e:
         log.error(f"Freshersworld error: {e}")
+
+    log.info(f"Freshersworld: {len(jobs)} jobs")
     return jobs

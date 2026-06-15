@@ -25,6 +25,7 @@ HEADERS = {
 }
 
 NAUKRI_SLUGS = [
+    # Full-time fresher jobs
     "generative-ai-jobs",
     "machine-learning-engineer-fresher-jobs",
     "software-developer-fresher-jobs-2026",
@@ -36,6 +37,15 @@ NAUKRI_SLUGS = [
     "software-engineer-jobs-for-freshers",
     "artificial-intelligence-jobs",
     "deep-learning-jobs",
+    # Internships
+    "machine-learning-internship-jobs",
+    "artificial-intelligence-internship-jobs",
+    "software-developer-internship-jobs",
+    "data-science-internship-jobs",
+    "python-internship-jobs",
+    "deep-learning-internship-jobs",
+    "nlp-internship-jobs",
+    "generative-ai-internship-jobs",
 ]
 
 

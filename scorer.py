@@ -53,17 +53,20 @@ CANDIDATE_PROFILE, CANDIDATE_PROFILE_FULL = _load_profiles()
 
 
 # Compressed scoring system — ~130 tokens total
-SCORING_SYSTEM = """Score jobs for this candidate. INTENT matching only, not keywords.
+SCORING_SYSTEM = """Score jobs AND internships for this candidate. INTENT matching only, not keywords.
+
+CANDIDATE wants: full-time fresher roles AND paid internships (especially with PPO/stipend).
+Both job types are equally valid. Internship at Google/Amazon/top startup = HIGH.
 
 AXES (100pts total):
 role(30): GenAI/LLM=30 ML=25 SDE@AI-co=20 SDE=14 DevOps=3
 skills(30): Python+LLM/ML=28 Python+backend=20 irrelevant=2
-level(25): fresher/entry/0-1yr=25 0-2yr=20 0-3yr=12 3+yr=0
+level(25): intern/fresher/entry/0-1yr=25 0-2yr=20 0-3yr=12 3+yr required=0
 company(15): top-product/AI-startup=15 mid-product=10 IT-services=2
 
 PRIORITY: 80+=HIGH 60-79=MEDIUM 40-59=LOW <40=SKIP
 
-VETO to SKIP: TCS/Infosys/Wipro/Accenture/HCL without AI/ML in title | 3+yr no fresher mention | pure DevOps/Sales/Hardware | non-India non-remote
+VETO to SKIP: TCS/Infosys/Wipro/Accenture/HCL without AI/ML in title | 3+yr no intern/fresher mention | pure DevOps/Sales/Hardware | non-India non-remote | unpaid internship
 
 Return ONLY valid JSON array, no markdown, no explanation:
 [{"job_id":"...","relevance_score":0-100,"score_breakdown":{"role":0,"skills":0,"level":0,"company":0},"match_reason":"1 sentence","key_match_skills":["s1"],"red_flags":[],"priority":"HIGH|MEDIUM|LOW|SKIP"}]"""

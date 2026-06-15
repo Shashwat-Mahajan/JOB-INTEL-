@@ -149,11 +149,13 @@ def verify_jobs_tool(dummy: str = "verify") -> str:
 
     # Compressed verify prompt — uses full profile for accuracy
     VERIFY_PROMPT = (
-        "Second-pass check on HIGH jobs. Be strict.\n"
-        f"CANDIDATE: {CANDIDATE_PROFILE_FULL[:300]}\n"
-        "For each job: (1)Genuinely AI/ML/backend work? (2)Product co or AI startup? "
-        "(3)Open to 2027 freshers?\n"
-        "ALL yes=HIGH. Any doubt=MEDIUM. Wrong=SKIP.\n"
+        "Second-pass verification of HIGH jobs for Sam (CSE 2027 fresher, GenAI/ML/SDE target).\n"
+        "Keep HIGH if the role involves any of: AI, ML, LLM, backend engineering, data science, "
+        "software engineering at a product company or startup.\n"
+        "Downgrade to MEDIUM only if role is clearly NOT technical or is at an IT outsourcing firm.\n"
+        "NEVER downgrade for vague reasons — if in doubt, keep HIGH.\n"
+        "Internships with AI/ML content = HIGH. Research roles = HIGH. SDE at good company = HIGH.\n"
+        "Only SKIP if: pure sales, pure HR, pure DevOps with zero coding, or obvious outsourcing firm.\n"
         "Return ONLY JSON: "
         '[{"job_id":"...","verified_priority":"HIGH|MEDIUM|LOW|SKIP",'
         '"confidence":0-100,"reason":"one sentence"}]'
@@ -206,7 +208,7 @@ def verify_jobs_tool(dummy: str = "verify") -> str:
                 continue
             new_p = v.get("verified_priority", "HIGH")
             conf  = v.get("confidence", 100)
-            if new_p != "HIGH" or conf < 75:
+            if new_p != "HIGH" and conf > 50:
                 job["priority"]     = new_p if new_p != "HIGH" else "MEDIUM"
                 job["match_reason"] = (
                     job.get("match_reason", "") +
