@@ -1,6 +1,14 @@
 """
 sources/career_portals.py
-Updated June 2026 — fixed endpoints, better error handling.
+Updated June 2026 — fixed Swiggy/Meesho/Atlassian/Razorpay (SmartRecruiters,
+not Greenhouse/Lever as previously assumed). PhonePe confirmed on Greenhouse.
+
+Diagnostic results (verified live, June 18 2026):
+  Swiggy     → SmartRecruiters ✅
+  Meesho     → SmartRecruiters ✅
+  Atlassian  → SmartRecruiters ✅
+  Razorpay   → SmartRecruiters ✅
+  PhonePe    → Greenhouse ✅ (SmartRecruiters also works as fallback)
 """
 
 import json
@@ -57,11 +65,128 @@ def _get(url: str, timeout: int = 20, extra_headers: dict = None) -> requests.Re
     return None
 
 
+# ── SmartRecruiters boards ────────────────────────────────────────────────────
+# Confirmed working for: Swiggy, Meesho, Atlassian, Razorpay, PhonePe (fallback)
+
+def _fetch_smartrecruiters(company: str, identifier: str) -> list:
+    """
+    GET https://api.smartrecruiters.com/v1/companies/{identifier}/postings
+    List endpoint has NO description — only title/location/dept/date.
+    Detail endpoint (the `ref` URL on each posting) has the full jobAd.
+
+    Strategy: filter by title at list time (cheap), then fetch full
+    description only for titles that pass, to confirm relevance and
+    get real description text without N detail calls for every posting.
+    """
+    jobs = []
+    offset, limit = 0, 100
+
+    while True:
+        url = (
+            f"https://api.smartrecruiters.com/v1/companies/{identifier}/postings"
+            f"?limit={limit}&offset={offset}"
+        )
+        r = _get(url, timeout=15)
+        if not r:
+            break
+        try:
+            data = r.json()
+        except Exception:
+            break
+
+        postings = data.get("content", [])
+        if not postings:
+            break
+
+        for p in postings:
+            title = p.get("name", "")
+            if not _is_relevant(title):
+                continue
+
+            loc = p.get("location", {})
+            city, region, country = loc.get("city", ""), loc.get("region", ""), loc.get("country", "")
+            location_str = ", ".join(filter(None, [city, region])) or country or "India"
+            if loc.get("remote"):
+                location_str += " (Remote)"
+
+            posting_id = p.get("id", "")
+            detail_url = p.get("ref", "")
+            description = ""
+            apply_url = f"https://jobs.smartrecruiters.com/{identifier}/{posting_id}"
+
+            if detail_url:
+                dr = _get(detail_url, timeout=10)
+                if dr:
+                    try:
+                        ddata = dr.json()
+                        sections = ddata.get("jobAd", {}).get("sections", {})
+                        description = " ".join(
+                            sections.get(k, {}).get("text", "")
+                            for k in ("jobDescription", "qualifications", "additionalInformation")
+                        )
+                        apply_action = ddata.get("actions", {}).get("applyOnWeb", {})
+                        if apply_action.get("url"):
+                            apply_url = apply_action["url"]
+                    except Exception:
+                        pass
+
+            if not _is_relevant(title, description):
+                continue
+
+            jobs.append({
+                "job_id":      _id(identifier, str(posting_id) or title),
+                "title":       title,
+                "company":     company,
+                "location":    location_str,
+                "description": description[:1200],
+                "url":         apply_url,
+                "posted":      (p.get("releasedDate") or "")[:10] or date.today().isoformat(),
+                "source":      f"{company} Careers (SmartRecruiters)",
+            })
+
+        total_found = data.get("totalFound", 0)
+        offset += limit
+        if offset >= total_found:
+            break
+        time.sleep(0.5)
+
+    return jobs
+
+
+def fetch_swiggy() -> list:
+    jobs = _fetch_smartrecruiters("Swiggy", "swiggy")
+    log.info(f"Swiggy: {len(jobs)} jobs")
+    return jobs
+
+
+def fetch_meesho() -> list:
+    jobs = _fetch_smartrecruiters("Meesho", "meesho")
+    log.info(f"Meesho: {len(jobs)} jobs")
+    return jobs
+
+
+def fetch_atlassian() -> list:
+    raw = _fetch_smartrecruiters("Atlassian", "atlassian")
+    jobs = [
+        j for j in raw
+        if any(w in j["location"].lower()
+               for w in ["india", "remote", "bangalore", "bengaluru", "hyderabad", "pune", "anywhere"])
+    ]
+    log.info(f"Atlassian: {len(jobs)} jobs")
+    return jobs
+
+
+def fetch_razorpay() -> list:
+    jobs = _fetch_smartrecruiters("Razorpay", "razorpay")
+    log.info(f"Razorpay: {len(jobs)} jobs")
+    return jobs
+
+
 # ── Greenhouse boards ─────────────────────────────────────────────────────────
+# PhonePe confirmed working here. Kept generic in case other companies are added later.
 
 def _fetch_greenhouse(company: str, board: str) -> list:
     jobs = []
-    # Try both endpoints — some boards use v1, some use the public board URL
     urls = [
         f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs?content=true",
         f"https://boards.greenhouse.io/{board}/jobs.json",
@@ -69,19 +194,23 @@ def _fetch_greenhouse(company: str, board: str) -> list:
     data = None
     for url in urls:
         r = _get(url)
-        if r:
-            try:
-                data = r.json()
-                break
-            except Exception:
-                continue
+        if not r:
+            continue
+        try:
+            parsed = r.json()
+        except Exception:
+            continue
+        job_list = parsed.get("jobs", parsed.get("postings", []))
+        if job_list:          # only accept if it actually has postings
+            data = parsed
+            break
 
     if not data:
         return jobs
 
     job_list = data.get("jobs", data.get("postings", []))
     for j in job_list:
-        title   = j.get("title", "")
+        title = j.get("title", "")
         content = j.get("content", j.get("description", ""))
         if not _is_relevant(title, content):
             continue
@@ -101,117 +230,11 @@ def _fetch_greenhouse(company: str, board: str) -> list:
     return jobs
 
 
-def fetch_swiggy() -> list:
-    jobs = _fetch_greenhouse("Swiggy", "swiggy")
-    # Also try their direct careers page
-    if not jobs:
-        try:
-            r = _get("https://careers.swiggy.com/api/fetch_jobs/?category=Technology")
-            if r:
-                for j in r.json().get("jobs", []):
-                    title = j.get("title", "")
-                    if not _is_relevant(title):
-                        continue
-                    jobs.append({
-                        "job_id":      _id("swiggy", str(j.get("id", title))),
-                        "title":       title,
-                        "company":     "Swiggy",
-                        "location":    j.get("location", "Bengaluru"),
-                        "description": j.get("description", "")[:1200],
-                        "url":         j.get("apply_url", "https://careers.swiggy.com"),
-                        "posted":      date.today().isoformat(),
-                        "source":      "Swiggy Careers",
-                    })
-        except Exception:
-            pass
-    log.info(f"Swiggy: {len(jobs)} jobs")
-    return jobs
-
-
-def fetch_meesho() -> list:
-    jobs = _fetch_greenhouse("Meesho", "meesho")
-    # Try direct API
-    if not jobs:
-        try:
-            r = _get("https://meesho.io/jobs/api/jobs?department=Engineering&location=India")
-            if r:
-                data = r.json()
-                for j in (data if isinstance(data, list) else data.get("jobs", [])):
-                    title = j.get("title", j.get("name", ""))
-                    if not _is_relevant(title):
-                        continue
-                    jobs.append({
-                        "job_id":      _id("meesho", str(j.get("id", title))),
-                        "title":       title,
-                        "company":     "Meesho",
-                        "location":    j.get("location", "Bengaluru"),
-                        "description": j.get("description", "")[:1200],
-                        "url":         j.get("url", j.get("applyUrl", "https://meesho.io/jobs")),
-                        "posted":      date.today().isoformat(),
-                        "source":      "Meesho Careers",
-                    })
-        except Exception:
-            pass
-    log.info(f"Meesho: {len(jobs)} jobs")
-    return jobs
-
-
-def fetch_atlassian() -> list:
-    raw  = _fetch_greenhouse("Atlassian", "atlassian")
-    jobs = [
-        j for j in raw
-        if any(w in j["location"].lower()
-               for w in ["india", "remote", "bangalore", "hyderabad", "pune", "anywhere"])
-    ]
-    log.info(f"Atlassian: {len(jobs)} jobs")
-    return jobs
-
-
-# ── Lever boards ──────────────────────────────────────────────────────────────
-
-def _fetch_lever(company: str, slug: str) -> list:
-    jobs = []
-    urls = [
-        f"https://api.lever.co/v0/postings/{slug}?mode=json",
-        f"https://jobs.lever.co/{slug}",
-    ]
-    for url in urls:
-        r = _get(url)
-        if not r:
-            continue
-        try:
-            data = r.json()
-            items = data if isinstance(data, list) else data.get("postings", [])
-            for j in items:
-                title = j.get("text", j.get("title", ""))
-                if not _is_relevant(title, j.get("description", j.get("descriptionPlain", ""))):
-                    continue
-                cats = j.get("categories", {})
-                jobs.append({
-                    "job_id":      _id(slug, j.get("id", title)),
-                    "title":       title,
-                    "company":     company,
-                    "location":    cats.get("location", j.get("location", "India")),
-                    "description": (j.get("description", j.get("descriptionPlain", "")) or "")[:1200],
-                    "url":         j.get("hostedUrl", j.get("applyUrl", f"https://jobs.lever.co/{slug}")),
-                    "posted":      date.today().isoformat(),
-                    "source":      f"{company} Careers (Lever)",
-                })
-            if jobs:
-                break
-        except Exception:
-            continue
-    return jobs
-
-
-def fetch_razorpay() -> list:
-    jobs = _fetch_lever("Razorpay", "razorpay")
-    log.info(f"Razorpay: {len(jobs)} jobs")
-    return jobs
-
-
 def fetch_phonepe() -> list:
-    jobs = _fetch_lever("PhonePe", "phonepe")
+    """PhonePe is on Greenhouse (primary, confirmed working) with SmartRecruiters fallback."""
+    jobs = _fetch_greenhouse("PhonePe", "phonepe")
+    if not jobs:
+        jobs = _fetch_smartrecruiters("PhonePe", "phonepe")
     log.info(f"PhonePe: {len(jobs)} jobs")
     return jobs
 
@@ -219,7 +242,7 @@ def fetch_phonepe() -> list:
 # ── Amazon ────────────────────────────────────────────────────────────────────
 
 def fetch_amazon() -> list:
-    """Amazon India entry-level jobs."""
+    """Amazon India entry-level jobs. Confirmed working — no changes needed."""
     jobs = []
     queries = [
         ("Machine Learning", "ENTRY_LEVEL"),
@@ -267,7 +290,6 @@ def fetch_amazon() -> list:
 # ── Google ────────────────────────────────────────────────────────────────────
 
 def fetch_google() -> list:
-    """Google India entry-level jobs."""
     jobs = []
     try:
         for q in ["Machine Learning Engineer", "Software Engineer", "AI Research",
@@ -314,12 +336,10 @@ def fetch_google() -> list:
 # ── Microsoft ─────────────────────────────────────────────────────────────────
 
 def fetch_microsoft() -> list:
-    """Microsoft India — updated API endpoint June 2026."""
     jobs = []
     try:
         for q in ["AI Engineer", "Software Engineer", "Machine Learning",
                    "Software Engineer Intern", "AI Intern", "Machine Learning Intern"]:
-            # Primary endpoint
             url = (
                 "https://jobs.careers.microsoft.com/global/en/search"
                 f"?q={requests.utils.quote(q)}"
@@ -364,7 +384,6 @@ def fetch_microsoft() -> list:
 # ── Flipkart ──────────────────────────────────────────────────────────────────
 
 def fetch_flipkart() -> list:
-    """Flipkart careers — JSON-LD scrape from their jobs page."""
     jobs = []
     try:
         urls = [
@@ -413,7 +432,6 @@ def fetch_flipkart() -> list:
 # ── Walmart ───────────────────────────────────────────────────────────────────
 
 def fetch_walmart() -> list:
-    """Walmart Global Tech India."""
     jobs = []
     try:
         for q in ["Machine Learning", "Software Engineer", "AI"]:
@@ -457,7 +475,6 @@ def fetch_walmart() -> list:
 # ── Adobe ─────────────────────────────────────────────────────────────────────
 
 def fetch_adobe() -> list:
-    """Adobe IDC India — Workday API."""
     jobs = []
     try:
         for q in ["Machine Learning", "AI Engineer", "Software Engineer", "Data"]:
@@ -496,7 +513,6 @@ def fetch_adobe() -> list:
 # ── Instahyre ─────────────────────────────────────────────────────────────────
 
 def fetch_instahyre() -> list:
-    """Instahyre India — AI-powered job platform."""
     jobs = []
     try:
         for kw in ["machine learning", "generative ai", "software engineer", "ai engineer", "python"]:
@@ -535,7 +551,6 @@ def fetch_instahyre() -> list:
 # ── Wellfound ─────────────────────────────────────────────────────────────────
 
 def fetch_wellfound() -> list:
-    """Wellfound (AngelList) — startup jobs India."""
     jobs = []
     try:
         urls = [
@@ -588,7 +603,6 @@ def fetch_wellfound() -> list:
 # ── Internshala ───────────────────────────────────────────────────────────────
 
 def fetch_internshala() -> list:
-    """Internshala — fresher jobs and internships India."""
     jobs = []
     try:
         urls = [
@@ -639,7 +653,6 @@ def fetch_internshala() -> list:
 # ── YCombinator ───────────────────────────────────────────────────────────────
 
 def fetch_ycombinator() -> list:
-    """YC Work at a Startup — top funded AI startups."""
     jobs = []
     try:
         url = "https://www.workatastartup.com/jobs.json?q=machine+learning+india&remote=true"
@@ -674,7 +687,6 @@ def fetch_ycombinator() -> list:
 # ── Naukri direct API ─────────────────────────────────────────────────────────
 
 def fetch_naukri_direct() -> list:
-    """Naukri direct search API — fresher tech roles India."""
     jobs = []
     try:
         naukri_headers = {
@@ -732,7 +744,6 @@ def fetch_naukri_direct() -> list:
 # ── Oracle ────────────────────────────────────────────────────────────────────
 
 def fetch_oracle() -> list:
-    """Oracle India careers."""
     jobs = []
     try:
         url = (
@@ -767,7 +778,6 @@ def fetch_oracle() -> list:
 # ── JPMorgan ──────────────────────────────────────────────────────────────────
 
 def fetch_jpmorgan() -> list:
-    """JPMorgan Chase India careers."""
     jobs = []
     try:
         url = (

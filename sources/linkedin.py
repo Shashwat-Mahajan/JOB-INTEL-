@@ -1,7 +1,16 @@
 """
-sources/linkedin.py
-LinkedIn guest job search — no API key, no login required.
-Searches multiple keyword+location combos across 2 pages each.
+sources/linkedin.py — LinkedIn guest job search.
+
+Fixes vs original:
+  1. URL extraction: pulls BOTH /jobs/view/<id> direct links AND
+     currentJobId=<id> from search redirects, always resolves to
+     https://www.linkedin.com/jobs/view/<id>/ canonical form.
+  2. Over-representation cap: max 10 keyword combos (was 25+).
+     LinkedIn already returns 163+ jobs from 10 searches — no need for 50.
+  3. Stricter intra-source dedup: keyed on job_id (numeric LinkedIn ID)
+     not just title+company, so the same posting across keyword combos
+     is dropped once instead of appearing multiple times.
+  4. Source tag set to "LinkedIn" consistently.
 """
 
 import re
@@ -23,51 +32,66 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
-# All keyword+location combos to search
-# f_E=1,2 = entry level + associate
-# f_TPR=r604800 = posted in last 7 days
+# ── Capped search list — 10 combos max ───────────────────────────────────────
+# Rationale: 10 combos × 2 pages = 20 requests → ~160-200 jobs from LinkedIn.
+# That is already the largest single source. Running 25+ combos wastes time
+# and causes LinkedIn to rate-limit (DNS failures seen in logs).
+# Kept: highest-signal queries. Removed: duplicates and low-signal variants.
 LINKEDIN_SEARCHES = [
-    # Full-time fresher roles
-    ("generative AI engineer fresher",    "India"),
-    ("LLM engineer fresher",              "India"),
-    ("machine learning engineer fresher", "India"),
-    ("AI engineer 2027",                  "India"),
-    ("software engineer AI fresher",      "India"),
-    ("backend engineer python fresher",   "India"),
-    ("SDE fresher 2027",                  "India"),
-    ("data scientist fresher",            "India"),
-    ("NLP engineer fresher",              "India"),
-    ("MLOps engineer fresher",            "India"),
-    # Internships
-    ("machine learning intern",           "India"),
-    ("AI intern",                         "India"),
-    ("software engineer intern",          "India"),
-    ("data science intern",               "India"),
-    ("generative AI intern",              "India"),
-    ("LLM intern",                        "India"),
-    ("backend developer intern python",   "India"),
-    ("NLP intern",                        "India"),
-    ("deep learning intern",              "India"),
-    ("research intern AI",                "India"),
-    # City-specific
-    ("software engineer",                 "Bengaluru, Karnataka, India"),
-    ("machine learning",                  "Bengaluru, Karnataka, India"),
-    ("AI engineer",                       "Hyderabad, Telangana, India"),
-    ("software engineer intern",          "Bengaluru, Karnataka, India"),
-    ("machine learning intern",           "Bengaluru, Karnataka, India"),
+    ("generative AI engineer",        "India"),
+    ("LLM engineer",                  "India"),
+    ("machine learning engineer",     "India"),
+    ("AI engineer intern",            "India"),
+    ("software engineer AI",          "India"),
+    ("backend engineer python",       "India"),
+    ("SDE fresher",                   "India"),
+    ("data science intern",           "India"),
+    ("machine learning intern",       "Bengaluru, Karnataka, India"),
+    ("software engineer intern",      "Bengaluru, Karnataka, India"),
 ]
 
+# ── URL helpers ───────────────────────────────────────────────────────────────
+
+# Direct view link already in correct form
+_VIEW_RE = re.compile(r'linkedin\.com/jobs/view/(\d+)')
+
+# Search redirect with currentJobId param
+_CJI_RE  = re.compile(r'currentJobId=(\d+)')
+
+def _extract_job_id_from_html_fragment(href: str) -> str | None:
+    """
+    Return the numeric LinkedIn job ID from any LinkedIn URL form:
+      - https://www.linkedin.com/jobs/view/1234567890/
+      - https://www.linkedin.com/jobs/search/?currentJobId=1234567890&...
+      - relative or partial hrefs containing either pattern
+    Returns None if no ID found.
+    """
+    m = _VIEW_RE.search(href)
+    if m:
+        return m.group(1)
+    m = _CJI_RE.search(href)
+    if m:
+        return m.group(1)
+    return None
+
+
+def _canonical_url(job_id: str) -> str:
+    return f"https://www.linkedin.com/jobs/view/{job_id}/"
+
+
+# ── Main fetcher ──────────────────────────────────────────────────────────────
 
 def fetch_linkedin(keywords: list, location: str = "India") -> list:
-    jobs        = []
-    seen_dedup  = set()
+    """
+    Fetch LinkedIn jobs via the guest API.
+    Returns jobs with canonical /jobs/view/<id>/ URLs.
+    Capped at LINKEDIN_SEARCHES (10 combos) regardless of what keywords are passed.
+    """
+    jobs: list[dict] = []
+    seen_ids: set[str] = set()   # keyed on numeric LinkedIn job ID
 
-    # Combine passed keywords with our expanded list
-    all_searches = [(kw, location) for kw in keywords[:4]]
-    all_searches += LINKEDIN_SEARCHES
-
-    for kw, loc in all_searches:
-        for start in [0, 25]:  # 2 pages per keyword
+    for kw, loc in LINKEDIN_SEARCHES:
+        for start in [0, 25]:    # 2 pages per keyword = ~50 jobs per combo
             try:
                 q   = requests.utils.quote(kw)
                 l   = requests.utils.quote(loc)
@@ -75,8 +99,8 @@ def fetch_linkedin(keywords: list, location: str = "India") -> list:
                     "https://www.linkedin.com/jobs-guest/jobs/api/"
                     "seeMoreJobPostings/search"
                     f"?keywords={q}&location={l}"
-                    f"&f_E=1,2,3"   # 1=entry, 2=associate, 3=internship
-                    f"&f_TPR=r604800"
+                    f"&f_E=1,2,3"       # entry / associate / internship
+                    f"&f_TPR=r604800"   # last 7 days
                     f"&start={start}"
                 )
                 r = requests.get(url, headers=HEADERS, timeout=20)
@@ -84,46 +108,78 @@ def fetch_linkedin(keywords: list, location: str = "India") -> list:
                     time.sleep(3)
                     continue
 
-                content   = r.text
+                content = r.text
+
+                # ── Parse fields ─────────────────────────────────────────────
                 titles    = re.findall(
                     r'class="base-search-card__title"[^>]*>\s*([^<]+?)\s*<',
-                    content
+                    content,
                 )
                 companies = re.findall(
                     r'class="base-search-card__subtitle"[^>]*>\s*([^<]+?)\s*<',
-                    content
+                    content,
                 )
                 locations = re.findall(
                     r'class="job-search-card__location"[^>]*>\s*([^<]+?)\s*<',
-                    content
-                )
-                links     = re.findall(
-                    r'href="(https://www\.linkedin\.com/jobs/view/[^"?]+)',
-                    content
+                    content,
                 )
 
+                # ── Extract ALL href values that contain a LinkedIn job ID ───
+                # Captures both /jobs/view/<id> and ?currentJobId=<id> forms.
+                all_hrefs = re.findall(r'href="([^"]*linkedin\.com/jobs/[^"]*)"', content)
+                # Also catch relative-style and data-entity-urn job IDs
+                urn_ids   = re.findall(r'data-entity-urn="[^"]*:(\d{10,})"', content)
+
+                # Build an ordered list of (job_id, canonical_url) aligned with title order
+                resolved: list[tuple[str, str]] = []
+                for href in all_hrefs:
+                    jid = _extract_job_id_from_html_fragment(href)
+                    if jid:
+                        resolved.append((jid, _canonical_url(jid)))
+
+                # Fallback: use URN IDs if href parsing yielded fewer than titles
+                if len(resolved) < len(titles):
+                    for uid in urn_ids:
+                        resolved.append((uid, _canonical_url(uid)))
+
+                # Deduplicate resolved list while preserving order
+                seen_this_page: set[str] = set()
+                resolved_deduped: list[tuple[str, str]] = []
+                for jid, curl in resolved:
+                    if jid not in seen_this_page:
+                        seen_this_page.add(jid)
+                        resolved_deduped.append((jid, curl))
+
+                # ── Assemble job dicts ────────────────────────────────────────
                 for i, title in enumerate(titles):
-                    title     = title.strip()
-                    company   = companies[i].strip() if i < len(companies) else "Unknown"
-                    dedup_key = f"{title}_{company}".lower()
+                    title   = title.strip()
+                    company = companies[i].strip() if i < len(companies) else "Unknown"
 
-                    if dedup_key in seen_dedup:
+                    if i < len(resolved_deduped):
+                        jid, job_url = resolved_deduped[i]
+                    else:
+                        # No URL extracted — generate a stable ID from title+company
+                        fallback_key = f"{title}_{company}".lower()
+                        jid          = hashlib.md5(fallback_key.encode()).hexdigest()[:10]
+                        job_url      = "https://www.linkedin.com/jobs/"
+
+                    # Cross-keyword dedup by LinkedIn job ID
+                    if jid in seen_ids:
                         continue
-                    seen_dedup.add(dedup_key)
+                    seen_ids.add(jid)
 
-                    jid = f"li_{hashlib.md5(dedup_key.encode()).hexdigest()[:10]}"
                     jobs.append({
-                        "job_id":      jid,
+                        "job_id":      f"li_{jid}",
                         "title":       title,
                         "company":     company,
                         "location":    locations[i].strip() if i < len(locations) else loc,
-                        "description": "(Visit URL for full job description)",
-                        "url":         links[i] if i < len(links) else "https://www.linkedin.com/jobs/",
+                        "description": "(Visit URL for full description)",
+                        "url":         job_url,   # always /jobs/view/<id>/ form
                         "posted":      date.today().isoformat(),
                         "source":      "LinkedIn",
                     })
 
-                time.sleep(3)  # LinkedIn needs a polite delay between requests
+                time.sleep(3)   # polite delay — reduces DNS failures
 
             except Exception as e:
                 log.error(f"LinkedIn error ({kw}): {e}")

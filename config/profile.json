@@ -31,9 +31,7 @@
       "RAGAS",
       "HuggingFace",
       "Vector Embeddings",
-      "ChromaDB",
-      "XGBoost",
-      "SMOTE"
+      "ChromaDB"
     ],
     "backend": [
       "FastAPI",
@@ -59,16 +57,16 @@
     ],
     "frontend": [
       "React.js",
-      "React"
+      "Node.js"
     ],
     "other": [
-      "Groq API",
-      "Ollama",
-      "BeautifulSoup",
-      "Brevo SMTP",
+      "XGBoost",
+      "SMOTE",
       "Playwright",
       "SendGrid",
-      "LinkedIn/Indeed/Naukri APIs"
+      "LinkedIn/Indeed/Naukri APIs",
+      "BeautifulSoup",
+      "Brevo SMTP"
     ]
   },
   "competitive_programming": {
@@ -80,25 +78,25 @@
   "projects": [
     {
       "name": "JobIntel Agent",
-      "description": "A multi-agent CrewAI pipeline that sources jobs across LinkedIn, Indeed, Naukri, and company career sites, scores fit, validates posting recency and legitimacy, and ranks results by priority.",
+      "description": "A multi-agent job discovery system using CrewAI, Groq, and Ollama. It fetches jobs from 15 sources, scores jobs using intent matching, and sends automated reports.",
       "tech_stack": [
         "Python",
         "CrewAI",
-        "LangChain",
-        "Playwright",
-        "SendGrid",
-        "LinkedIn/Indeed/Naukri APIs",
-        "Vector Embeddings"
+        "Groq API",
+        "Ollama",
+        "BeautifulSoup",
+        "GitHub Actions"
       ],
       "highlights": [
-        "Intent-based job matching using semantic vector embeddings",
-        "Automated end-to-end intelligence delivery via SendGrid email report"
+        "Multi-agent system",
+        "Intent matching",
+        "Automated reporting"
       ],
-      "status": "completed"
+      "status": "in-progress"
     },
     {
       "name": "Financial Analyst RAG System",
-      "description": "A production RAG pipeline for real-time multi-company financial analysis that applies the RAGAS evaluation framework to benchmark retrieval faithfulness and answer relevance.",
+      "description": "A production RAG pipeline for real-time multi-company financial analysis. It applies the RAGAS evaluation framework to benchmark retrieval faithfulness and answer relevance.",
       "tech_stack": [
         "Python",
         "LangChain",
@@ -109,14 +107,14 @@
         "GitHub Actions"
       ],
       "highlights": [
-        "Engineered HuggingFace query-expansion for cross-company comparison accuracy",
-        "Implemented LLM output guardrails to constrain responses to grounded, cited content"
+        "Production RAG pipeline",
+        "RAGAS evaluation framework"
       ],
       "status": "completed"
     },
     {
       "name": "Credit Risk Assessment System",
-      "description": "A full-stack ML system that investigates severe class imbalance in a 10,000-record credit dataset using SMOTE oversampling and trains an XGBoost classifier achieving 88% accuracy.",
+      "description": "A full-stack ML system for credit risk assessment. It investigates severe class imbalance in a 10,000-record credit dataset using SMOTE oversampling and trains an XGBoost classifier.",
       "tech_stack": [
         "React.js",
         "FastAPI",
@@ -126,14 +124,15 @@
         "SMOTE"
       ],
       "highlights": [
-        "Trained XGBoost classifier achieving 88% accuracy",
-        "Architected full inference pipeline containerised with Docker and CI/CD via GitHub Actions"
+        "Full-stack ML system",
+        "SMOTE oversampling",
+        "XGBoost classifier"
       ],
       "status": "completed"
     },
     {
       "name": "AWS Bedrock AgentCore Agent",
-      "description": "A stateful AI agent built and deployed using AWS Bedrock AgentCore and LangGraph that achieves 88% accuracy and implements AgentCore Memory for persistent memory, session continuity, and context retrieval.",
+      "description": "A stateful AI agent using AWS Bedrock AgentCore and LangGraph. It builds and deploys a stateful AI agent with persistent memory, session continuity, and context retrieval.",
       "tech_stack": [
         "Python",
         "LangGraph",
@@ -147,27 +146,11 @@
         "SMOTE"
       ],
       "highlights": [
-        "Built and deployed a stateful AI agent using AWS Bedrock AgentCore and LangGraph",
-        "Implemented AgentCore Memory for persistent memory, session continuity, and context retrieval"
+        "Stateful AI agent",
+        "Persistent memory",
+        "Session continuity"
       ],
       "status": "completed"
-    },
-    {
-      "name": "Job Intel Agent (Current Project)",
-      "description": "A multi-agent job discovery system using CrewAI + Groq + Ollama that fetches jobs from 15 sources, scores jobs using Groq llama-3.3-70b-versatile with intent matching, and sends HTML digest via Brevo SMTP.",
-      "tech_stack": [
-        "Python",
-        "CrewAI 1.x",
-        "Groq API",
-        "Ollama",
-        "BeautifulSoup",
-        "GitHub Actions"
-      ],
-      "highlights": [
-        "Multi-agent job discovery system using CrewAI + Groq + Ollama",
-        "Fully automated via GitHub Actions daily cron at 8 AM IST"
-      ],
-      "status": "in-progress"
     }
   ],
   "experience": [
@@ -175,7 +158,7 @@
       "role": "Generative AI Engineer Intern",
       "company": "Technical Hub",
       "duration": "Jan 2026 \u2013 Present",
-      "description": "Designed and shipped LangChain-based RAG pipelines serving live end users, optimised vector retrieval, and applied systematic prompt evaluation and failure analysis to reduce hallucination rates."
+      "description": "Designed and shipped LangChain-based RAG pipelines serving live end users. Applied systematic prompt evaluation and failure analysis to reduce hallucination rates."
     }
   ],
   "achievements": [
@@ -193,7 +176,7 @@
     {
       "name": "Smart Attendance System",
       "result": "Team Lead, 6-Member Team",
-      "description": "Led architecture design, sprint planning, and task delegation for a 6-member team and architected a real-time WebSocket layer validated under 100+ concurrent users with zero data loss."
+      "description": "Led architecture design, sprint planning, and task delegation for a 6-member team. Architected a real-time WebSocket layer validated under 100+ concurrent users with zero data loss."
     },
     {
       "name": "SITNOVATE \u2014 Real-Time Chat Engine",
@@ -247,5 +230,5 @@
     "Unpaid internships",
     "Outside India unless fully remote"
   ],
-  "_scoring_prompt": "CANDIDATE: Shashwat Mahajan\nSTATUS: Final year B.Tech student, interning as Generative AI Engineer\nEDUCATION: B.Tech in Computer Science Engineering in Computer Science Engineering from Yeshwantrao Chavan College of Engineering, Nagpur\nGRADUATION: 2027 batch | CGPA: 8.00 / 10\nEXPERIENCE LEVEL: fresher (max 2 years)\n\nTECHNICAL SKILLS:\nPython, Java, JavaScript, LLMs, RAG, LangChain, LangGraph, CrewAI, AWS Bedrock, AWS Bedrock AgentCore, AgentCore Memory, Prompt Engineering, RAGAS, HuggingFace, Vector Embeddings, ChromaDB, XGBoost, SMOTE, FastAPI, Docker, GitHub Actions, AWS S3, Node.js, PostgreSQL, MongoDB, REST APIs, WebSockets, AWS (Bedrock, AgentCore, S3), Docker, GitHub Actions, CI/CD, PostgreSQL, MongoDB, SQL, React.js, React, Groq API, Ollama, BeautifulSoup, Brevo SMTP, Playwright, SendGrid, LinkedIn/Indeed/Naukri APIs\n\nCOMPETITIVE PROGRAMMING:\nLeetCode: 1538 rating, 400+ problems solved\nCodeChef: 2-Star Coder\n\n\nKEY PROJECTS:\n- JobIntel Agent: A multi-agent CrewAI pipeline that sources jobs across LinkedIn, Indeed, Naukri, and company career sites, scores fit, validates posting recency and legitimacy, and ranks results by priority. Stack: Python, CrewAI, LangChain, Playwright, SendGrid, LinkedIn/Indeed/Naukri APIs, Vector Embeddings. Intent-based job matching using semantic vector embeddings; Automated end-to-end intelligence delivery via SendGrid email report\n- Financial Analyst RAG System: A production RAG pipeline for real-time multi-company financial analysis that applies the RAGAS evaluation framework to benchmark retrieval faithfulness and answer relevance. Stack: Python, LangChain, ChromaDB, HuggingFace, RAGAS, AWS S3, GitHub Actions. Engineered HuggingFace query-expansion for cross-company comparison accuracy; Implemented LLM output guardrails to constrain responses to grounded, cited content\n- Credit Risk Assessment System: A full-stack ML system that investigates severe class imbalance in a 10,000-record credit dataset using SMOTE oversampling and trains an XGBoost classifier achieving 88% accuracy. Stack: React.js, FastAPI, XGBoost, Docker, GitHub Actions, SMOTE. Trained XGBoost classifier achieving 88% accuracy; Architected full inference pipeline containerised with Docker and CI/CD via GitHub Actions\n- AWS Bedrock AgentCore Agent: A stateful AI agent built and deployed using AWS Bedrock AgentCore and LangGraph that achieves 88% accuracy and implements AgentCore Memory for persistent memory, session continuity, and context retrieval. Stack: Python, LangGraph, AWS Bedrock, AWS Bedrock AgentCore, AgentCore Memory, Docker, FastAPI, XGBoost, GitHub Actions, SMOTE. Built and deployed a stateful AI agent using AWS Bedrock AgentCore and LangGraph; Implemented AgentCore Memory for persistent memory, session continuity, and context retrieval\n- Job Intel Agent (Current Project): A multi-agent job discovery system using CrewAI + Groq + Ollama that fetches jobs from 15 sources, scores jobs using Groq llama-3.3-70b-versatile with intent matching, and sends HTML digest via Brevo SMTP. Stack: Python, CrewAI 1.x, Groq API, Ollama, BeautifulSoup, GitHub Actions. Multi-agent job discovery system using CrewAI + Groq + Ollama; Fully automated via GitHub Actions daily cron at 8 AM IST\n\nWORK EXPERIENCE:\n- Generative AI Engineer Intern at Technical Hub (Jan 2026 \u2013 Present): Designed and shipped LangChain-based RAG pipelines serving live end users, optimised vector retrieval, and applied systematic prompt evaluation and failure analysis to reduce hallucination rates.\n\nACHIEVEMENTS: LeetCode Rating 1538; CodeChef 2-Star Coder; Machine Learning Specialization \u2014 Codebasics.io; Full Stack Web Development (MERN Stack)\nHACKATHONS: DevOnboard \u2014 AI Repository Intelligence Platform (Individual); Smart Attendance System (Team Lead, 6-Member Team); SITNOVATE \u2014 Real-Time Chat Engine (Individual)\nPUBLICATIONS: \n\nTARGET ROLES (priority order): GenAI Engineer, ML Engineer, Software Engineer - AI, Backend Engineer, Data Engineer\nTARGET COMPANIES: Amazon, Microsoft, Google, Flipkart, Swiggy, Meesho, Razorpay, PhonePe, Atlassian, Adobe, Walmart Global Tech, Oracle, JPMorgan, Uber, Samsung R&D, Nutanix, Qualcomm, NVIDIA\nPREFERRED LOCATIONS: Bengaluru, Pune, Hyderabad, Mumbai, NCR, Remote India\n\nHARD VETOES (auto-disqualify):\n- IT outsourcing firms (TCS/Infosys/Wipro/Accenture/Cognizant/HCL) unless title explicitly says AI/ML/GenAI\n- Roles requiring 3+ years experience without fresher mention\n- Pure DevOps, Network Engineer, Hardware, Sales, non-tech roles\n- Unpaid internships\n- Outside India unless fully remote"
+  "_scoring_prompt": "CANDIDATE: Shashwat Mahajan\nSTATUS: Final year B.Tech student, interning as Generative AI Engineer\nEDUCATION: B.Tech in Computer Science Engineering in Computer Science Engineering from Yeshwantrao Chavan College of Engineering, Nagpur\nGRADUATION: 2027 batch | CGPA: 8.00 / 10\nEXPERIENCE LEVEL: fresher (max 2 years)\n\nTECHNICAL SKILLS:\nPython, Java, JavaScript, LLMs, RAG, LangChain, LangGraph, CrewAI, AWS Bedrock, AWS Bedrock AgentCore, AgentCore Memory, Prompt Engineering, RAGAS, HuggingFace, Vector Embeddings, ChromaDB, FastAPI, Docker, GitHub Actions, AWS S3, Node.js, PostgreSQL, MongoDB, REST APIs, WebSockets, AWS (Bedrock, AgentCore, S3), Docker, GitHub Actions, CI/CD, PostgreSQL, MongoDB, SQL, React.js, Node.js, XGBoost, SMOTE, Playwright, SendGrid, LinkedIn/Indeed/Naukri APIs, BeautifulSoup, Brevo SMTP\n\nCOMPETITIVE PROGRAMMING:\nLeetCode: 1538 rating, 400+ problems solved\nCodeChef: 2-Star Coder\n\n\nKEY PROJECTS:\n- JobIntel Agent: A multi-agent job discovery system using CrewAI, Groq, and Ollama. It fetches jobs from 15 sources, scores jobs using intent matching, and sends automated reports. Stack: Python, CrewAI, Groq API, Ollama, BeautifulSoup, GitHub Actions. Multi-agent system; Intent matching; Automated reporting\n- Financial Analyst RAG System: A production RAG pipeline for real-time multi-company financial analysis. It applies the RAGAS evaluation framework to benchmark retrieval faithfulness and answer relevance. Stack: Python, LangChain, ChromaDB, HuggingFace, RAGAS, AWS S3, GitHub Actions. Production RAG pipeline; RAGAS evaluation framework\n- Credit Risk Assessment System: A full-stack ML system for credit risk assessment. It investigates severe class imbalance in a 10,000-record credit dataset using SMOTE oversampling and trains an XGBoost classifier. Stack: React.js, FastAPI, XGBoost, Docker, GitHub Actions, SMOTE. Full-stack ML system; SMOTE oversampling; XGBoost classifier\n- AWS Bedrock AgentCore Agent: A stateful AI agent using AWS Bedrock AgentCore and LangGraph. It builds and deploys a stateful AI agent with persistent memory, session continuity, and context retrieval. Stack: Python, LangGraph, AWS Bedrock, AWS Bedrock AgentCore, AgentCore Memory, Docker, FastAPI, XGBoost, GitHub Actions, SMOTE. Stateful AI agent; Persistent memory; Session continuity\n\nWORK EXPERIENCE:\n- Generative AI Engineer Intern at Technical Hub (Jan 2026 \u2013 Present): Designed and shipped LangChain-based RAG pipelines serving live end users. Applied systematic prompt evaluation and failure analysis to reduce hallucination rates.\n\nACHIEVEMENTS: LeetCode Rating 1538; CodeChef 2-Star Coder; Machine Learning Specialization \u2014 Codebasics.io; Full Stack Web Development (MERN Stack)\nHACKATHONS: DevOnboard \u2014 AI Repository Intelligence Platform (Individual); Smart Attendance System (Team Lead, 6-Member Team); SITNOVATE \u2014 Real-Time Chat Engine (Individual)\nPUBLICATIONS: \n\nTARGET ROLES (priority order): GenAI Engineer, ML Engineer, Software Engineer - AI, Backend Engineer, Data Engineer\nTARGET COMPANIES: Amazon, Microsoft, Google, Flipkart, Swiggy, Meesho, Razorpay, PhonePe, Atlassian, Adobe, Walmart Global Tech, Oracle, JPMorgan, Uber, Samsung R&D, Nutanix, Qualcomm, NVIDIA\nPREFERRED LOCATIONS: Bengaluru, Pune, Hyderabad, Mumbai, NCR, Remote India\n\nHARD VETOES (auto-disqualify):\n- IT outsourcing firms (TCS/Infosys/Wipro/Accenture/Cognizant/HCL) unless title explicitly says AI/ML/GenAI\n- Roles requiring 3+ years experience without fresher mention\n- Pure DevOps, Network Engineer, Hardware, Sales, non-tech roles\n- Unpaid internships\n- Outside India unless fully remote"
 }
