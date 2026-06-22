@@ -7,7 +7,7 @@ import logging
 from datetime import date
 from pathlib import Path
 
-from utils import setup_logging, load_config, load_profile
+from utils import setup_logging, load_config, load_profile, get_search_keywords
 from crew  import build_crew
 
 BASE   = Path(__file__).parent
@@ -51,7 +51,13 @@ def _default_config() -> dict:
         "smtp_pass":       os.getenv("SMTP_PASS", ""),
         "location":        os.getenv("LOCATION", "India"),
         "llm_batch_size":  10,
-        "search_keywords": DEFAULT_KEYWORDS,
+        # Left empty on purpose — resolved in main() from profile.json's
+        # target_roles via utils.get_search_keywords(), falling back to
+        # DEFAULT_KEYWORDS only if no profile exists. Previously this was
+        # pre-populated with DEFAULT_KEYWORDS here, which meant the
+        # "if not cfg.get('search_keywords')" check in main() was always
+        # already satisfied and the profile-driven keywords were never used.
+        "search_keywords": [],
         "include_internships": True,
     }
 
@@ -74,8 +80,20 @@ def main():
     else:
         log.warning("config/profile.json not found — run: python setup_profile.py")
 
+    # Keyword resolution order:
+    #   1. Explicit override in config.json (cfg["search_keywords"] already set)
+    #   2. Profile-driven keywords from target_roles (utils.get_search_keywords)
+    #   3. Hardcoded DEFAULT_KEYWORDS, only if no profile exists at all
     if not cfg.get("search_keywords"):
-        cfg["search_keywords"] = DEFAULT_KEYWORDS
+        if profile:
+            cfg["search_keywords"] = get_search_keywords(profile)
+            log.info(
+                f"Using {len(cfg['search_keywords'])} profile-driven search "
+                f"keywords derived from target_roles in profile.json"
+            )
+        else:
+            cfg["search_keywords"] = DEFAULT_KEYWORDS
+            log.info("No profile found and no config override — falling back to hardcoded DEFAULT_KEYWORDS")
 
     if cfg.get("include_internships", True):
         intern_kw = [k for k in cfg["search_keywords"] if "intern" in k.lower()]

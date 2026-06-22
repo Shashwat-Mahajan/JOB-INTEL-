@@ -1,15 +1,13 @@
 """
 reporter.py — Builds styled HTML email report and sends via Brevo SMTP.
 
-Changes vs original:
-  - build_html_report(internships, full_time, report_date) — new signature.
-    Accepts two pre-sorted lists instead of one flat list.
-  - Two separate sections: "Top Internships" and "Top Full-Time Jobs"
-    each ranked by relevance_score descending (caller sorts before passing in).
-  - job_type badge on every card: INTERN (purple) | FULL-TIME (blue)
-  - Apply button URL is already a direct link — set by filters.fix_linkedin_url()
-  - Header stats show internship count + job count separately
-  - send_email() signature unchanged — caller builds the subject
+send_email() now returns True/False based on the ACTUAL SMTP response,
+instead of always logging "sent successfully" regardless of outcome.
+smtplib's sendmail() can complete without raising an exception even when
+the relay/receiving server will reject the message (e.g. unverified
+sender) — this version checks the refused-recipients dict AND catches
+SMTPSenderRefused specifically, since that is the most common real-world
+failure mode with Brevo's free tier (sender email not verified).
 """
 
 import smtplib
@@ -20,7 +18,7 @@ from email.mime.text import MIMEText
 log = logging.getLogger(__name__)
 
 
-# ── Card sub-components (unchanged from original) ────────────────────────────
+# ── Card sub-components ───────────────────────────────────────────────────────
 
 def _score_ring(score: int, color: str) -> str:
     return f"""
@@ -85,7 +83,6 @@ def _pri_badge(priority: str, color: str) -> str:
 
 
 def _type_badge(job_type: str) -> str:
-    """INTERN badge (purple) or FULL-TIME badge (blue)."""
     if job_type == "internship":
         return (
             '<span style="background:#ede9fe;color:#6d28d9;padding:2px 9px;'
@@ -102,6 +99,7 @@ def _job_card(j: dict, color: str) -> str:
     score    = j.get("relevance_score", 0)
     pri      = j.get("priority", "LOW")
     job_type = j.get("job_type", "full-time")
+    company  = j.get("company") or "Unknown"
     colors   = {"HIGH": "#0ea5e9", "MEDIUM": "#8b5cf6", "LOW": "#64748b"}
     pc       = colors.get(pri, "#64748b")
 
@@ -122,10 +120,10 @@ def _job_card(j: dict, color: str) -> str:
           </div>
           <div style="font-size:15px;font-weight:700;color:#0f172a;
                       margin-bottom:3px;word-break:break-word;">
-            {j["title"]}
+            {j.get("title", "Untitled role")}
           </div>
           <div style="font-size:12px;color:#64748b;">
-            🏢 <strong>{j["company"]}</strong>
+            🏢 <strong>{company}</strong>
             &nbsp;·&nbsp; 📍 {j.get("location", "")}
             &nbsp;·&nbsp; 🗓 {str(j.get("posted", ""))[:10]}
           </div>
@@ -177,19 +175,10 @@ def build_html_report(
 ) -> str:
     """
     Build a styled HTML email report.
-
-    Args:
-        internships:    Jobs with job_type == "internship", pre-sorted by score desc.
-        full_time_jobs: Jobs with job_type == "full-time",  pre-sorted by score desc.
-        report_date:    ISO date string, e.g. "2026-06-17".
-
-    The caller (crew.build_report_tool) is responsible for splitting and sorting.
-    Apply → buttons use job["url"] which is already a direct link
-    (set by filters.fix_linkedin_url before scoring).
+    internships / full_time_jobs should be pre-sorted by score descending.
     """
     total = len(internships) + len(full_time_jobs)
 
-    # Stats for the header
     intern_high  = sum(1 for j in internships    if j.get("priority") == "HIGH")
     ft_high      = sum(1 for j in full_time_jobs if j.get("priority") == "HIGH")
     total_high   = intern_high + ft_high
@@ -198,16 +187,8 @@ def build_html_report(
     ft_med       = sum(1 for j in full_time_jobs if j.get("priority") == "MEDIUM")
     total_medium = intern_med + ft_med
 
-    intern_low   = total - intern_high - intern_med
-    ft_low       = len(full_time_jobs) - ft_high - ft_med
-    total_low    = intern_low + ft_low
-
-    internship_section = _section(
-        "🎓 Top Internships", "🎓", internships, "#7c3aed"
-    )
-    fulltime_section = _section(
-        "💼 Top Full-Time Jobs", "💼", full_time_jobs, "#0ea5e9"
-    )
+    internship_section = _section("🎓 Top Internships", "🎓", internships, "#7c3aed")
+    fulltime_section   = _section("💼 Top Full-Time Jobs", "💼", full_time_jobs, "#0ea5e9")
 
     return f"""<!DOCTYPE html>
 <html lang="en">
@@ -279,15 +260,23 @@ def build_html_report(
   <div style="text-align:center;font-size:11px;color:#94a3b8;
               margin-top:28px;padding-top:16px;
               border-top:1px solid #e2e8f0;">
-    Job Intel Agent v2.1 &nbsp;·&nbsp; CrewAI + Groq + Ollama &nbsp;·&nbsp;
+    Job Intel Agent v2.2 &nbsp;·&nbsp; CrewAI + Groq + Ollama &nbsp;·&nbsp;
     Filters: 0–2 yr exp · no senior/lead roles · direct apply links
   </div>
 </body>
 </html>"""
 
 
-def send_email(html: str, cfg: dict, subject: str) -> None:
-    """Send HTML digest via Brevo SMTP. Signature unchanged."""
+def send_email(html: str, cfg: dict, subject: str) -> bool:
+    """
+    Send HTML digest via Brevo SMTP (smtp-relay.brevo.com:587).
+
+    Returns True only if the SMTP server fully accepted the message for
+    the recipient. Returns False on any failure or rejection — including
+    cases where smtplib raises no exception but the server still refuses
+    the sender (the most common real-world failure: unverified sender
+    on Brevo's free tier).
+    """
     try:
         msg = MIMEMultipart("alternative")
         msg["Subject"] = subject
@@ -298,9 +287,50 @@ def send_email(html: str, cfg: dict, subject: str) -> None:
         with smtplib.SMTP(cfg["smtp_host"], cfg.get("smtp_port", 587)) as server:
             server.ehlo()
             server.starttls()
+            server.ehlo()
             server.login(cfg["smtp_user"], cfg["smtp_pass"])
-            server.sendmail(cfg["email_from"], cfg["email_to"], msg.as_string())
 
-        log.info("Email sent successfully.")
+            # sendmail() returns {recipient: (code, error)} for REFUSED
+            # recipients only. Empty dict = accepted for all recipients.
+            refused = server.sendmail(
+                cfg["email_from"], [cfg["email_to"]], msg.as_string()
+            )
+
+            if refused:
+                for recipient, (code, error_msg) in refused.items():
+                    log.error(
+                        f"SMTP REJECTED recipient {recipient}: "
+                        f"code={code} message={error_msg}"
+                    )
+                return False
+
+        log.info(
+            f"Email accepted by SMTP relay for {cfg['email_to']} "
+            f"(subject: {subject}). If it never arrives, check Brevo's "
+            f"sender verification — 'accepted by relay' is not the same "
+            f"as 'delivered to inbox'."
+        )
+        return True
+
+    except smtplib.SMTPSenderRefused as e:
+        log.error(
+            f"SMTP refused the SENDER address ({cfg.get('email_from')}). "
+            f"This means the sender is NOT verified in Brevo. Fix: go to "
+            f"Brevo dashboard → Senders, Domains & IPs → Senders, add/verify "
+            f"{cfg.get('email_from')} with the 6-digit code Brevo emails you. "
+            f"Error: {e}"
+        )
+        return False
+    except smtplib.SMTPRecipientsRefused as e:
+        log.error(f"SMTP refused ALL recipients: {e.recipients}")
+        return False
+    except smtplib.SMTPAuthenticationError as e:
+        log.error(
+            f"SMTP authentication failed — check smtp_user/smtp_pass in "
+            f"config.json match your Brevo SMTP key (not your account "
+            f"login password). Error: {e}"
+        )
+        return False
     except Exception as e:
         log.error(f"Email failed: {e}")
+        return False

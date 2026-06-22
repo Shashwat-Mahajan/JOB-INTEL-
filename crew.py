@@ -1,17 +1,5 @@
 """
 crew.py — CrewAI 1.x pipeline.
-Agents use Ollama qwen3:4b (local, no rate limits, tiny token usage).
-Scoring and verification use Groq llama-3.3-70b (accurate, fast, free tier).
-
-Changes vs original:
-  - filters.apply_all_filters() called inside fetch_all_jobs_tool after dedup
-    (token-free: seniority/exp/type classification before any Groq call)
-  - job["job_type"] set by filters — "internship" | "full-time"
-  - Verifier downgrade threshold raised: conf > 50 → conf >= 85
-    (was dropping 6/7 HIGH — now only downgrades on very high confidence)
-  - build_report_tool splits verified_jobs by job_type before calling reporter
-  - build_html_report() receives (internships, full_time_jobs, today) separately
-  - Email subject shows internship + job counts
 """
 
 import json
@@ -30,9 +18,12 @@ from sources.career_portals import fetch_all_career_portals
 from sources.linkedin       import fetch_linkedin
 from sources.naukri         import fetch_naukri
 from scorer                 import score_jobs_with_llm, CANDIDATE_PROFILE_FULL
-from reporter               import build_html_report, send_email
-from utils                  import load_seen, save_seen, deduplicate
-from filters                import apply_all_filters          # ← NEW
+from reporter                import build_html_report, send_email
+from utils                   import (
+    load_seen, save_seen, deduplicate, deduplicate_batch,
+    load_profile, get_verifier_system_prompt,
+)
+from filters                import apply_all_filters
 
 log = logging.getLogger(__name__)
 
@@ -43,24 +34,14 @@ REPORTS.mkdir(parents=True, exist_ok=True)
 (BASE / "logs").mkdir(parents=True, exist_ok=True)
 
 class _PipelineState:
-    """
-    Stable container for inter-agent data.
-
-    Why a class instead of a bare dict:
-    CrewAI 1.x re-evaluates module-level expressions between agent boundaries
-    in sequential crews. A bare dict literal `_state: dict = {...}` can be
-    reset to its initial value when a new agent starts, wiping data written
-    by earlier agents. A class instance is only constructed once at import
-    time; attribute writes on the instance persist for the entire process.
-    """
     def __init__(self):
-        self.raw_jobs:      list = []
-        self.fresh_jobs:    list = []
-        self.scored_jobs:   list = []
-        self.verified_jobs: list = []
-        self.config:        dict = {}
+        self.raw_jobs:       list = []
+        self.fresh_jobs:     list = []
+        self.scored_jobs:    list = []
+        self.verified_jobs:  list = []
+        self.config:         dict = {}
+        self.seen_snapshot:  dict = {}
 
-    # Dict-style access so existing _state["key"] calls keep working
     def __getitem__(self, key):        return getattr(self, key)
     def __setitem__(self, key, value): setattr(self, key, value)
     def get(self, key, default=None):  return getattr(self, key, default)
@@ -79,34 +60,58 @@ def _get_llm() -> LLM:
 # ── Tool 1: Scout ─────────────────────────────────────────────────────────────
 
 @tool("Fetch all jobs from all sources")
-def fetch_all_jobs_tool(dummy: str = "go") -> str:
+def fetch_all_jobs_tool() -> str:
     """
     Fetches all job listings from all sources, deduplicates, then applies
-    ALL pre-LLM filters (URL fix, job-type classification, seniority drop,
-    experience filter) before any Groq call is made.
+    pre-LLM filters before any Groq call is made.
     """
     cfg      = _state["config"]
     keywords = cfg.get("search_keywords", [])
     location = cfg.get("location", "India")
 
     raw = []
-    raw.extend(fetch_remotive(keywords))
-    raw.extend(fetch_arbeitnow(keywords))
-    raw.extend(fetch_jobicy(keywords))
-    raw.extend(fetch_himalayas(keywords))
-    raw.extend(fetch_freshersworld(keywords))
-    raw.extend(fetch_linkedin(keywords, location))
-    raw.extend(fetch_naukri())
-    raw.extend(fetch_all_career_portals())
+    source_counts = {}
 
-    seen = load_seen(SEEN)
-    fresh, seen = deduplicate(raw, seen)
-    save_seen(SEEN, seen)
+    def _fetch_and_count(name, fn, *args):
+        try:
+            result = fn(*args)
+        except Exception as e:
+            log.error(f"Source error — {name}: {e}")
+            result = []
+        source_counts[name] = len(result)
+        raw.extend(result)
 
-    # ── Pre-LLM filters — zero tokens ──────────────────────────────────────
-    # Must run BEFORE score_jobs_tool. Filters set job["job_type"] and
-    # normalise job["url"] to direct links for all sources.
-    fresh = apply_all_filters(fresh)                          # ← NEW
+    _fetch_and_count("Remotive", fetch_remotive, keywords)
+    _fetch_and_count("Arbeitnow", fetch_arbeitnow, keywords)
+    _fetch_and_count("Jobicy", fetch_jobicy, keywords)
+    _fetch_and_count("Himalayas", fetch_himalayas, keywords)
+    _fetch_and_count("Freshersworld", fetch_freshersworld, keywords)
+    _fetch_and_count("LinkedIn", fetch_linkedin, keywords, location)
+    _fetch_and_count("Naukri", fetch_naukri, keywords)          # ← CHANGED: now passes keywords
+    _fetch_and_count("CareerPortals", fetch_all_career_portals)
+
+    log.info("Per-source raw counts: " + ", ".join(f"{k}={v}" for k, v in source_counts.items()))
+
+    before_batch_dedup = len(raw)
+    raw = deduplicate_batch(raw)
+    log.info(f"Scout: cross-source dedup {before_batch_dedup} → {len(raw)}")
+
+    # Seen-store dedup disabled — every run returns all fetched jobs
+    # regardless of whether they appeared in previous runs.
+    fresh = raw
+    _state["seen_snapshot"] = {}
+
+    try:
+        (BASE / "logs" / "last_raw_jobs.json").write_text(
+            json.dumps(fresh, default=str), encoding="utf-8"
+        )
+    except Exception as e:
+        log.debug(f"Could not cache raw jobs for audit: {e}")
+
+    profile = cfg.get("profile", {})
+    max_exp_years = profile.get("max_experience_years", 2)
+    role_exclusions = profile.get("role_type_exclusions", [])
+    fresh = apply_all_filters(fresh, max_experience_years=max_exp_years, role_exclusions=role_exclusions)
 
     _state["raw_jobs"]   = raw
     _state["fresh_jobs"] = fresh
@@ -115,11 +120,13 @@ def fetch_all_jobs_tool(dummy: str = "go") -> str:
     ft_count     = len(fresh) - intern_count
 
     log.info(
-        f"Scout: {len(raw)} total → {len(fresh)} after dedup+filter "
-        f"({intern_count} internships, {ft_count} full-time)"
+        f"Scout: {len(raw)} after cross-source dedup → {len(fresh)} after seen-dedup+filter "
+        f"({intern_count} internships, {ft_count} full-time). "
+        f"NOTE: seen_jobs.json not yet updated — will persist only on successful report."
     )
     return (
-        f"Fetched {len(raw)} total. After dedup + pre-LLM filter: {len(fresh)} "
+        f"Fetched {before_batch_dedup} total ({len(raw)} unique across sources). "
+        f"After seen-dedup + pre-LLM filter: {len(fresh)} "
         f"({intern_count} internships, {ft_count} full-time). Ready to score."
     )
 
@@ -127,11 +134,8 @@ def fetch_all_jobs_tool(dummy: str = "go") -> str:
 # ── Tool 2: Analyst ───────────────────────────────────────────────────────────
 
 @tool("Score jobs with Groq LLM intent matching")
-def score_jobs_tool(dummy: str = "score") -> str:
-    """
-    Scores pre-filtered fresh jobs using Groq llama-3.3-70b.
-    job["job_type"] is already set — scorer uses it for context.
-    """
+def score_jobs_tool() -> str:
+    """Scores pre-filtered fresh jobs using Groq llama-3.3-70b-versatile intent matching against the candidate profile."""
     fresh      = _state.get("fresh_jobs", [])
     cfg        = _state.get("config", {})
     api_key    = cfg.get("groq_api_key", "")
@@ -158,12 +162,8 @@ def score_jobs_tool(dummy: str = "score") -> str:
 # ── Tool 3: Verifier ──────────────────────────────────────────────────────────
 
 @tool("Verify HIGH priority jobs for accuracy")
-def verify_jobs_tool(dummy: str = "verify") -> str:
-    """
-    Permissive second-pass on HIGH jobs.
-    Only downgrades when confidence >= 85 (was > 50 — was too aggressive).
-    Internships and research roles default to keep HIGH.
-    """
+def verify_jobs_tool() -> str:
+    """Runs a permissive second-pass verification on HIGH priority jobs, only downgrading when confidence is very high."""
     scored  = _state.get("scored_jobs", [])
     cfg     = _state.get("config", {})
     api_key = cfg.get("groq_api_key", "")
@@ -181,18 +181,8 @@ def verify_jobs_tool(dummy: str = "verify") -> str:
 
     log.info(f"Verifier: checking {len(high_jobs)} HIGH jobs via Groq...")
 
-    VERIFY_PROMPT = (
-        "Second-pass verification of HIGH jobs for Shashwat (CSE 2027 fresher, GenAI/ML/SDE).\n"
-        "PERMISSIVE POLICY — keep HIGH unless there is an OBVIOUS disqualifier.\n"
-        "Keep HIGH if: any AI/ML/LLM/backend/SDE work, product company, startup, research role.\n"
-        "Keep HIGH if: internship at any recognisable tech company.\n"
-        "Keep HIGH if: you are unsure — default is to keep.\n"
-        "Downgrade to MEDIUM ONLY if: clearly non-technical (HR/Sales/Finance) OR pure IT outsourcing firm.\n"
-        "SKIP ONLY if: scam-like post, unpaid internship, outside India + non-remote.\n"
-        "Return ONLY JSON:\n"
-        '[{"job_id":"...","verified_priority":"HIGH|MEDIUM|LOW|SKIP",'
-        '"confidence":0-100,"reason":"one sentence"}]'
-    )
+    profile = load_profile()
+    VERIFY_PROMPT = get_verifier_system_prompt(profile)
 
     try:
         client = Groq(api_key=api_key)
@@ -202,11 +192,16 @@ def verify_jobs_tool(dummy: str = "verify") -> str:
                 "job_id":   j["job_id"],
                 "title":    j["title"],
                 "company":  j["company"],
-                "job_type": j.get("job_type", "full-time"),   # ← pass type to verifier
+                "job_type": j.get("job_type", "full-time"),
                 "reason":   (j.get("match_reason") or "")[:120],
             }
             for j in high_jobs
         ]
+
+        # max_tokens: each verification object is ~150 tokens, plus
+        # array brackets/whitespace. 10 HIGH jobs needs ~1600 tokens
+        # minimum — 512 was causing truncation and silent failure.
+        max_tok = max(2000, len(high_jobs) * 180)
 
         response = client.chat.completions.create(
             model="llama-3.3-70b-versatile",
@@ -215,14 +210,15 @@ def verify_jobs_tool(dummy: str = "verify") -> str:
                 {
                     "role": "user",
                     "content": (
-                        f"Verify these {len(high_jobs)} HIGH jobs:\n"
+                        f"Verify these {len(high_jobs)} HIGH jobs.\n"
+                        f"Return a JSON array with exactly {len(high_jobs)} objects — one per job_id.\n"
                         f"{json.dumps(payload)}\n"
-                        "JSON only."
+                        "JSON only. No truncation."
                     ),
                 },
             ],
             temperature=0.05,
-            max_tokens=512,
+            max_tokens=max_tok,
         )
 
         raw = response.choices[0].message.content.strip()
@@ -242,9 +238,6 @@ def verify_jobs_tool(dummy: str = "verify") -> str:
             new_p = v.get("verified_priority", "HIGH")
             conf  = v.get("confidence", 100)
 
-            # ── CHANGED: was conf > 50, now conf >= 85 ────────────────────
-            # Only downgrade when the verifier is very sure it's wrong.
-            # This was the root cause of 6/7 HIGH jobs getting dropped.
             if new_p != "HIGH" and conf >= 85:
                 job["priority"]     = new_p
                 job["match_reason"] = (
@@ -284,21 +277,15 @@ def verify_jobs_tool(dummy: str = "verify") -> str:
 # ── Tool 4: Reporter ──────────────────────────────────────────────────────────
 
 @tool("Build HTML report and send email digest")
-def build_report_tool(dummy: str = "report") -> str:
-    """
-    Splits verified jobs into internships and full-time.
-    Each group is ranked by score descending.
-    Passes both lists to build_html_report() for separate sections.
-    Email subject shows internship + job counts.
-    """
+def build_report_tool() -> str:
+    """Splits verified jobs into internships and full-time, builds the HTML report, sends the email digest, and persists the seen-store on success."""
     jobs = _state.get("verified_jobs", [])
     cfg  = _state.get("config", {})
 
     if not jobs:
-        log.info("Reporter: no jobs to report.")
+        log.info("Reporter: no jobs to report — seen_jobs.json left untouched.")
         return "No verified jobs — no report generated."
 
-    # ── Split by job_type, sort by score within each group ─────────────────
     internships = sorted(
         [j for j in jobs if j.get("job_type") == "internship"],
         key=lambda j: -j.get("relevance_score", 0),
@@ -313,23 +300,43 @@ def build_report_tool(dummy: str = "report") -> str:
     )
 
     today = date.today().isoformat()
-    # ── build_html_report now receives two separate lists ──────────────────
     html  = build_html_report(internships, full_time, today)
     path  = REPORTS / f"report_{today}.html"
     path.write_text(html, encoding="utf-8")
     log.info(f"Report saved → {path}")
 
+    email_status_suffix = ""
+    email_ok = True
     if cfg.get("email_enabled"):
         subj = (
             f"Job Intel — {today} — "
             f"{len(internships)} internship{'s' if len(internships) != 1 else ''} · "
             f"{len(full_time)} job{'s' if len(full_time) != 1 else ''}"
         )
-        send_email(html, cfg, subj)
-        return (
-            f"Report saved and emailed. "
-            f"{len(internships)} internships, {len(full_time)} full-time jobs."
-        )
+        email_ok = send_email(html, cfg, subj)
+        if not email_ok:
+            email_status_suffix = (
+                f" EMAIL FAILED — check logs/agent.log for the SMTP error "
+                f"(likely sender not verified in Brevo)."
+            )
+
+        # Seen-store persistence disabled — nothing written between runs.
+        log.info("Seen-store disabled — all jobs returned fresh each run.")
+
+    if cfg.get("email_enabled"):
+        if email_ok:
+            return (
+                f"Report saved and emailed successfully. "
+                f"{len(internships)} internships, {len(full_time)} full-time jobs. "
+                f"Saved to {path}."
+            )
+        else:
+            return (
+                f"Report saved to {path} but EMAIL FAILED — check logs/agent.log "
+                f"for the SMTP error (likely sender not verified in Brevo). "
+                f"{len(internships)} internships, {len(full_time)} full-time jobs "
+                f"are in the saved report file.{email_status_suffix}"
+            )
 
     return f"Report saved to {path}. Email disabled in config."
 
@@ -343,9 +350,8 @@ def build_crew(cfg: dict) -> Crew:
     scout = Agent(
         role="Job Scout",
         goal=(
-            "Fetch all fresh job listings from all 20+ sources. "
-            "Apply pre-LLM filters (URL fix, job-type classification, seniority drop, "
-            "experience filter) BEFORE handing off to the Analyst."
+            "Fetch all fresh job listings from all sources. "
+            "Apply pre-LLM filters BEFORE handing off to the Analyst."
         ),
         backstory="Expert at sourcing and cleaning tech job data across all platforms.",
         tools=[fetch_all_jobs_tool],
@@ -381,7 +387,8 @@ def build_crew(cfg: dict) -> Crew:
         role="Job Reporter",
         goal=(
             "Split jobs into Top Internships and Top Full-Time Jobs. "
-            "Build HTML digest with two ranked sections. Send email."
+            "Build HTML digest with two ranked sections. Send email. "
+            "Only after this succeeds should fetched jobs be marked as seen."
         ),
         backstory="Turns verified job scores into a clean daily briefing with direct apply links.",
         tools=[build_report_tool],
@@ -419,7 +426,7 @@ def build_crew(cfg: dict) -> Crew:
     task_report = Task(
         description=(
             "Call build_report_tool. Split into internships and full-time. "
-            "Save report and send email with internship + job counts in subject."
+            "Save report, send email, and persist seen_jobs.json now that the report succeeded."
         ),
         expected_output="Internship count, full-time count, report path, email status.",
         agent=reporter,

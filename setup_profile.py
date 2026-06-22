@@ -4,6 +4,23 @@ Run once: python setup_profile.py
 Reads your resume PDF + your current projects description,
 extracts a structured profile using Groq, saves to config/profile.json.
 From then on, scorer.py uses profile.json automatically.
+
+CHANGES vs original:
+  - EXTRACTION_PROMPT no longer shows concrete example VALUES for
+    target_roles / target_companies / location_preferences / hard_vetoes.
+    Groq at low temperature tends to echo example values shown in a JSON
+    schema rather than deriving genuinely resume-specific content — this
+    was the root cause of "profile doesn't reflect my actual resume."
+    Now each of those fields has an explicit DERIVATION INSTRUCTION
+    instead of a sample array, forcing Groq to reason from resume text.
+  - Added a new field: "role_type_exclusions" — explicit non-engineering
+    role categories to exclude (content writing, prompt-engineering-as-
+    content, marketing, sales) derived from candidate's stated target
+    role type, not from a hardcoded list. This directly addresses the
+    "AI Content Writer recommended to AI Engineer candidate" mismatch.
+  - hard_vetoes now requires the model to justify each veto by quoting
+    which resume signal led to it, so vetoes are traceable to your resume
+    rather than generic boilerplate.
 """
 
 import json
@@ -12,8 +29,8 @@ from pathlib import Path
 from groq import Groq
 import fitz  # pymupdf
 
-BASE       = Path(__file__).parent
-CONFIG     = BASE / "config" / "config.json"
+BASE        = Path(__file__).parent
+CONFIG      = BASE / "config" / "config.json"
 PROFILE_OUT = BASE / "config" / "profile.json"
 
 
@@ -36,6 +53,13 @@ Job Intel Agent (this system):
 EXTRACTION_PROMPT = """
 You are a technical career advisor. Extract a complete, structured candidate profile
 from the resume text provided.
+
+CRITICAL RULE: Every field below must be DERIVED from the actual resume text given
+to you. Do NOT use generic/example values. If you are unsure what belongs in a field,
+look for direct evidence in the resume (project tech stacks, job titles applied to,
+skills listed, internship roles held) rather than guessing a "typical" answer for
+a CS student. Fields with no resume evidence should be left empty — an empty list
+is more honest than a templated guess.
 
 Return ONLY a valid JSON object with EXACTLY this structure — no extra fields,
 no markdown, no explanation:
@@ -111,38 +135,24 @@ no markdown, no explanation:
     }
   ],
 
-  "target_roles": [
-    "GenAI Engineer",
-    "ML Engineer",
-    "Software Engineer - AI",
-    "Backend Engineer",
-    "Data Engineer"
-  ],
+ "target_roles": "DERIVE this from ALL of the candidate's technical skills, project tech stacks, internship titles, and CURRENT_PROJECTS text. Think in TWO tiers: (1) PRIMARY roles — titles directly matching the candidate's most-used tech (e.g. if every project uses LangChain/RAG/LLMs → 'Generative AI Engineer', 'LLM Engineer'); (2) SECONDARY roles — titles matching strong supporting skills that appear across multiple projects (e.g. if the candidate has FastAPI + Docker + REST APIs + PostgreSQL + MongoDB across multiple projects → also add 'Backend Engineer', 'Software Engineer'; if the candidate has React.js + FastAPI → also add 'Full Stack Developer'; if the candidate has XGBoost + ML projects → also add 'Data Scientist', 'ML Engineer'). Include BOTH tiers. A candidate with GenAI primary skills AND strong backend secondary skills should have 6-10 target roles, not just 2-3. Return as a JSON array of strings, primary roles first, secondary roles after.",
 
-  "target_companies": [
-    "Amazon", "Microsoft", "Google", "Flipkart", "Swiggy",
-    "Meesho", "Razorpay", "PhonePe", "Atlassian", "Adobe",
-    "Walmart Global Tech", "Oracle", "JPMorgan", "Uber",
-    "Samsung R&D", "Nutanix", "Qualcomm", "NVIDIA"
-  ],
+  "target_companies": "DERIVE this ONLY if the resume explicitly mentions target companies, applied-to companies, or referral mentions. If the resume contains no explicit company preferences, return an empty array — do NOT invent a generic FAANG/unicorn list.",
 
-  "location_preferences": ["Bengaluru", "Pune", "Hyderabad", "Mumbai", "NCR", "Remote India"],
+  "location_preferences": "DERIVE this from the candidate's current location (city/state mentioned in contact info or education) and any explicitly stated location preference in the resume. If none stated beyond current location, return just that city plus 'Remote India'. Do NOT default to a generic multi-city Indian tech-hub list.",
 
-  "graduation_batch": "2027",
+  "graduation_batch": "year extracted from education.graduation_year",
   "experience_level": "fresher",
   "max_experience_years": 2,
 
-  "hard_vetoes": [
-    "IT outsourcing firms (TCS/Infosys/Wipro/Accenture/Cognizant/HCL) unless title explicitly says AI/ML/GenAI",
-    "Roles requiring 3+ years experience without fresher mention",
-    "Pure DevOps, Network Engineer, Hardware, Sales, non-tech roles",
-    "Unpaid internships",
-    "Outside India unless fully remote"
-  ]
+  "role_type_exclusions": "DERIVE this by identifying what the candidate's resume evidence is NOT. Specifically check: does the resume show hands-on coding (writing code, building systems, debugging) or does it show content/communication work (writing articles, prompts-as-content, documentation-only, non-technical analysis)? If the resume is clearly a HANDS-ON ENGINEERING profile (the common case for CS/AI/ML resumes), explicitly list: ['AI content writing', 'prompt engineering for content/marketing', 'AI marketing/copywriting roles', 'non-technical AI trainer roles', 'data annotation without engineering component']. Only omit these exclusions if the resume itself shows genuine content/writing work as a real skill area.",
+
+  "hard_vetoes": "DERIVE this as a JSON array of objects: [{'veto': 'short description', 'resume_evidence': 'what in the resume justifies this veto'}]. Derive vetoes from: (1) experience level mismatches (fresher → veto 3+ years required); (2) role mismatches (no DevOps projects → veto pure DevOps); (3) location constraints; (4) company type mismatches — IMPORTANT: if the candidate's profile is clearly AI/ML/product-engineering focused (building AI systems, RAG pipelines, ML models), derive a veto for IT services/outsourcing companies (TCS, Infosys, Wipro, HCL, Accenture, Capgemini, Tech Mahindra, Cognizant, Mphasis, Genpact, Hexaware, LTI, LTIMindtree, Birlasoft) WITHOUT an AI/ML title — because these companies hire freshers into generic IT support/CRUD roles, not the AI/ML engineering roles this candidate targets. Every veto must cite real resume evidence.",
 }
 
 Be thorough. Extract every skill, project, achievement you can find.
-If a field is not in the resume, use an empty string or empty list.
+If a field is not in the resume, use an empty string or empty list — never
+fall back to a plausible-sounding generic answer.
 """
 
 
@@ -169,7 +179,10 @@ def extract_profile_with_groq(resume_text: str, current_projects: str, api_key: 
                 "content": (
                     f"RESUME TEXT:\n{resume_text}\n\n"
                     f"CURRENT PROJECTS (not yet on resume):\n{current_projects}\n\n"
-                    "Extract the complete profile. Return JSON only."
+                    "Extract the complete profile. Return JSON only. "
+                    "Remember: target_roles, target_companies, location_preferences, "
+                    "role_type_exclusions, and hard_vetoes must be DERIVED from the "
+                    "resume text above, not generic examples."
                 ),
             },
         ],
@@ -192,6 +205,10 @@ def build_scoring_prompt(profile: dict) -> str:
     """
     Build a rich, dynamic CANDIDATE_PROFILE string from the extracted profile.
     This is what goes into scorer.py's scoring prompt.
+
+    Now includes role_type_exclusions and structured hard_vetoes (with
+    resume_evidence) so the scorer can see WHY a veto exists, not just that
+    it exists — this helps the LLM apply vetoes correctly to edge cases.
     """
     name    = profile.get("name", "")
     edu     = profile.get("education", {})
@@ -201,6 +218,7 @@ def build_scoring_prompt(profile: dict) -> str:
     exp     = profile.get("experience_level", "fresher")
     batch   = profile.get("graduation_batch", "2027")
     vetoes  = profile.get("hard_vetoes", [])
+    exclusions = profile.get("role_type_exclusions", [])
     targets = profile.get("target_roles", [])
     companies = profile.get("target_companies", [])
     locations = profile.get("location_preferences", [])
@@ -229,6 +247,17 @@ def build_scoring_prompt(profile: dict) -> str:
     hackathons   = "; ".join([f"{h['name']} ({h.get('result','')})" for h in profile.get("hackathons", [])])
     publications = "; ".join([p.get("title","") for p in profile.get("publications", [])])
 
+    # Build vetoes string — handle both old (string list) and new (object list) formats
+    veto_lines = []
+    for v in vetoes:
+        if isinstance(v, dict):
+            veto_lines.append(f"- {v.get('veto','')} (evidence: {v.get('resume_evidence','')})")
+        else:
+            veto_lines.append(f"- {v}")
+    vetoes_str = "\n".join(veto_lines)
+
+    exclusions_str = ", ".join(exclusions) if exclusions else "none specified"
+
     prompt = f"""
 CANDIDATE: {name}
 STATUS: {status}
@@ -254,12 +283,15 @@ ACHIEVEMENTS: {achievements}
 HACKATHONS: {hackathons}
 PUBLICATIONS: {publications}
 
-TARGET ROLES (priority order): {', '.join(targets)}
-TARGET COMPANIES: {', '.join(companies)}
-PREFERRED LOCATIONS: {', '.join(locations)}
+TARGET ROLES (priority order, derived from resume evidence): {', '.join(targets) if targets else 'see technical skills above'}
+TARGET COMPANIES: {', '.join(companies) if companies else 'no explicit preference — any reputable tech company'}
+PREFERRED LOCATIONS: {', '.join(locations) if locations else 'not specified'}
 
-HARD VETOES (auto-disqualify):
-{chr(10).join('- ' + v for v in vetoes)}
+ROLE TYPE EXCLUSIONS (this candidate wants HANDS-ON ENGINEERING work, NOT these):
+{exclusions_str}
+
+HARD VETOES (auto-disqualify, each tied to resume evidence):
+{vetoes_str if vetoes_str else '- none derived'}
 """.strip()
 
     return prompt
@@ -315,6 +347,13 @@ def main():
     print(f"  Skills:   {len(sum(profile.get('technical_skills',{}).values(),[]))} skills found")
     print(f"  Projects: {len(profile.get('projects',[]))} projects found")
     print(f"  Exp:      {len(profile.get('experience',[]))} roles found")
+    print(f"  Target roles (derived): {profile.get('target_roles', [])}")
+    print(f"  Role exclusions (derived): {profile.get('role_type_exclusions', [])}")
+    print(f"  Hard vetoes (derived): {len(profile.get('hard_vetoes', []))} vetoes")
+    print(f"\n⚠️  REVIEW target_roles, role_type_exclusions, and hard_vetoes above.")
+    print(f"   These are now derived from your resume, not generic templates.")
+    print(f"   If anything looks wrong, edit config/profile.json directly —")
+    print(f"   it's a plain JSON file you can hand-correct.")
     print(f"\nRun 'python main.py' to start the agent with your profile.")
 
 

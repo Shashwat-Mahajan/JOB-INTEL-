@@ -162,3 +162,49 @@ def load_config(path: Path) -> dict:
             "Copy config/config.example.json → config/config.json"
         )
     return json.loads(path.read_text(encoding="utf-8"))
+
+# ── Profile-driven search keywords ───────────────────────────────────────────
+# Generates LinkedIn/Naukri search queries directly from profile.json's
+# target_roles, so fetch-stage queries and scoring-stage judgment both stay
+# anchored to the same resume source of truth instead of drifting apart
+# (previously linkedin.py had its own hardcoded LINKEDIN_SEARCHES list that
+# had no connection to profile.json at all).
+
+_FALLBACK_SEARCH_KEYWORDS = [
+    "generative AI engineer", "LLM engineer", "machine learning engineer",
+    "AI engineer intern", "software engineer AI", "backend engineer python",
+    "SDE fresher", "data science intern",
+]
+
+def get_search_keywords(profile: dict | None = None) -> list[str]:
+    """
+    Build search keywords from profile.json's target_roles.
+    Falls back to a small hardcoded list if no profile/target_roles exist,
+    so the system never has zero search terms.
+    """
+    profile = profile if profile is not None else load_profile()
+    roles = profile.get("target_roles", [])
+    if not roles:
+        logging.getLogger(__name__).warning(
+            "No target_roles in profile.json — using fallback search keywords"
+        )
+        return _FALLBACK_SEARCH_KEYWORDS
+
+    keywords = []
+    for role in roles:
+        role = role.strip()
+        if not role:
+            continue
+        keywords.append(role)
+        keywords.append(f"{role} intern")
+        keywords.append(f"{role} fresher")
+
+    # de-dupe while preserving order
+    seen = set()
+    out = []
+    for k in keywords:
+        kl = k.lower()
+        if kl not in seen:
+            seen.add(kl)
+            out.append(k)
+    return out or _FALLBACK_SEARCH_KEYWORDS
