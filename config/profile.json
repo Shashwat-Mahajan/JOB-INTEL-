@@ -77,7 +77,7 @@
   "projects": [
     {
       "name": "JobIntel Agent",
-      "description": "A multi-agent CrewAI pipeline for job discovery and matching",
+      "description": "A multi-agent CrewAI pipeline for job intelligence, sourcing jobs across multiple platforms and ranking results by priority.",
       "tech_stack": [
         "Python",
         "CrewAI",
@@ -95,7 +95,7 @@
     },
     {
       "name": "Financial Analyst RAG System",
-      "description": "A production RAG pipeline for real-time multi-company financial analysis",
+      "description": "A production RAG pipeline for real-time multi-company financial analysis, applying the RAGAS evaluation framework to benchmark retrieval faithfulness and answer relevance.",
       "tech_stack": [
         "Python",
         "LangChain",
@@ -106,14 +106,14 @@
         "GitHub Actions"
       ],
       "highlights": [
-        "Applied RAGAS evaluation framework to benchmark retrieval faithfulness and answer relevance",
-        "Engineered HuggingFace query-expansion for cross-company comparison accuracy"
+        "Engineered HuggingFace query-expansion for cross-company comparison accuracy",
+        "Implemented LLM output guardrails to constrain responses to grounded, cited content"
       ],
       "status": "completed"
     },
     {
       "name": "Credit Risk Assessment System",
-      "description": "A full-stack ML system for credit risk assessment",
+      "description": "A full-stack ML system for credit risk assessment, investigating severe class imbalance in a 10,000-record credit dataset using SMOTE oversampling and training an XGBoost classifier.",
       "tech_stack": [
         "React.js",
         "FastAPI",
@@ -123,14 +123,14 @@
         "SMOTE"
       ],
       "highlights": [
-        "Investigated severe class imbalance in a 10,000-record credit dataset using SMOTE oversampling",
-        "Trained XGBoost classifier achieving 88% accuracy"
+        "Trained XGBoost classifier achieving 88% accuracy",
+        "Architected full inference pipeline containerised with Docker and CI/CD via GitHub Actions"
       ],
       "status": "completed"
     },
     {
       "name": "AWS Bedrock AgentCore Agent",
-      "description": "A stateful AI agent using AWS Bedrock AgentCore and LangGraph",
+      "description": "A stateful AI agent using AWS Bedrock AgentCore and LangGraph, built and deployed on AWS infrastructure.",
       "tech_stack": [
         "Python",
         "LangGraph",
@@ -144,8 +144,8 @@
         "SMOTE"
       ],
       "highlights": [
-        "Built and deployed a stateful AI agent using AWS Bedrock AgentCore and LangGraph",
-        "Implemented AgentCore Memory for persistent memory, session continuity, and context retrieval"
+        "Designed stateful agent orchestration workflows with long-term memory management and contextual reasoning",
+        "Containerized runtimes with Docker and deployed cloud-native agent services on AWS infrastructure"
       ],
       "status": "completed"
     }
@@ -155,7 +155,7 @@
       "role": "Generative AI Engineer Intern",
       "company": "Technical Hub",
       "duration": "Jan 2026 \u2013 Present",
-      "description": "Designed and shipped LangChain-based RAG pipelines serving live end users; applied systematic prompt evaluation and failure analysis to reduce hallucination rates"
+      "description": "Designed and shipped LangChain-based RAG pipelines serving live end users, optimised vector retrieval, and applied systematic prompt evaluation and failure analysis to reduce hallucination rates."
     }
   ],
   "achievements": [
@@ -168,17 +168,17 @@
     {
       "name": "DevOnboard \u2014 AI Repository Intelligence Platform",
       "result": "Individual",
-      "description": "Individually built an AI platform that ingests any GitHub repo via URL, parses its structure and source code, and returns cited context-aware answers to developer onboarding questions"
+      "description": "Individually built an AI platform that ingests any GitHub repo via URL, parses its structure and source code, and returns cited context-aware answers to developer onboarding questions."
     },
     {
       "name": "Smart Attendance System",
       "result": "Team Lead, 6-Member Team",
-      "description": "Led architecture design, sprint planning, and task delegation for a 6-member team; architected a real-time WebSocket layer validated under 100+ concurrent users with zero data loss"
+      "description": "Led architecture design, sprint planning, and task delegation for a 6-member team, architected a real-time WebSocket layer validated under 100+ concurrent users with zero data loss."
     },
     {
       "name": "SITNOVATE \u2014 Real-Time Chat Engine",
       "result": "Individual",
-      "description": "Scoped and delivered a JWT-secured real-time chat system entirely within 24 hours; made rapid architecture trade-offs under time constraints and shipped a live demo to a judging panel"
+      "description": "Scoped and delivered a JWT-secured real-time chat system entirely within 24 hours, made rapid architecture trade-offs under time constraints and shipped a live demo to a judging panel."
     }
   ],
   "publications": [],
@@ -209,12 +209,12 @@
   "hard_vetoes": [
     {
       "veto": "IT services/outsourcing companies without AI/ML title",
-      "resume_evidence": "The candidate's profile is clearly AI/ML/product-engineering focused, and they have no experience in IT services/outsourcing companies"
+      "resume_evidence": "The candidate's profile is clearly AI/ML/product-engineering focused, with experience in Generative AI, LLMs, and ML."
     },
     {
-      "veto": "Roles requiring more than 2 years of experience",
-      "resume_evidence": "The candidate is a fresher with less than 2 years of experience"
+      "veto": "Roles requiring 3+ years of experience",
+      "resume_evidence": "The candidate is a final year B.Tech student and a fresher."
     }
   ],
-  "_scoring_prompt": "CANDIDATE: Shashwat Mahajan\nSTATUS: Final year B.Tech student, interning as Generative AI Engineer\nEDUCATION: B.Tech in Computer Science Engineering in Computer Science Engineering from Yeshwantrao Chavan College of Engineering, Nagpur\nGRADUATION: 2027 batch | CGPA: 8.00 / 10\nEXPERIENCE LEVEL: fresher (max 2 years)\n\nTECHNICAL SKILLS:\nPython, Java, JavaScript, LLMs, RAG, LangChain, LangGraph, CrewAI, AWS Bedrock, AWS Bedrock AgentCore, AgentCore Memory, Prompt Engineering, RAGAS, HuggingFace, Vector Embeddings, ChromaDB, XGBoost, FastAPI, Docker, GitHub Actions, AWS S3, Node.js, PostgreSQL, MongoDB, REST APIs, WebSockets, AWS (Bedrock, AgentCore, S3), Docker, GitHub Actions, CI/CD, PostgreSQL, MongoDB, SQL, React.js, Node.js, SMOTE, BeautifulSoup, Brevo SMTP, Groq API, Ollama\n\nCOMPETITIVE PROGRAMMING:\nLeetCode: 1538 rating, 400+ problems solved\nCodeChef: 2-Star Coder\n\n\nKEY PROJECTS:\n- JobIntel Agent: A multi-agent CrewAI pipeline for job discovery and matching Stack: Python, CrewAI, LangChain, Playwright, SendGrid, LinkedIn/Indeed/Naukri APIs, Vector Embeddings. Intent-based job matching using semantic vector embeddings; Automated end-to-end intelligence delivery via SendGrid email report\n- Financial Analyst RAG System: A production RAG pipeline for real-time multi-company financial analysis Stack: Python, LangChain, ChromaDB, HuggingFace, RAGAS, AWS S3, GitHub Actions. Applied RAGAS evaluation framework to benchmark retrieval faithfulness and answer relevance; Engineered HuggingFace query-expansion for cross-company comparison accuracy\n- Credit Risk Assessment System: A full-stack ML system for credit risk assessment Stack: React.js, FastAPI, XGBoost, Docker, GitHub Actions, SMOTE. Investigated severe class imbalance in a 10,000-record credit dataset using SMOTE oversampling; Trained XGBoost classifier achieving 88% accuracy\n- AWS Bedrock AgentCore Agent: A stateful AI agent using AWS Bedrock AgentCore and LangGraph Stack: Python, LangGraph, AWS Bedrock, AWS Bedrock AgentCore, AgentCore Memory, Docker, FastAPI, XGBoost, GitHub Actions, SMOTE. Built and deployed a stateful AI agent using AWS Bedrock AgentCore and LangGraph; Implemented AgentCore Memory for persistent memory, session continuity, and context retrieval\n\nWORK EXPERIENCE:\n- Generative AI Engineer Intern at Technical Hub (Jan 2026 \u2013 Present): Designed and shipped LangChain-based RAG pipelines serving live end users; applied systematic prompt evaluation and failure analysis to reduce hallucination rates\n\nACHIEVEMENTS: LeetCode Rating 1538; CodeChef 2-Star Coder; Machine Learning Specialization \u2014 Codebasics.io; Full Stack Web Development (MERN Stack)\nHACKATHONS: DevOnboard \u2014 AI Repository Intelligence Platform (Individual); Smart Attendance System (Team Lead, 6-Member Team); SITNOVATE \u2014 Real-Time Chat Engine (Individual)\nPUBLICATIONS: \n\nTARGET ROLES (priority order, derived from resume evidence): Generative AI Engineer, LLM Engineer, Backend Engineer, Software Engineer, Full Stack Developer, Data Scientist, ML Engineer\nTARGET COMPANIES: no explicit preference \u2014 any reputable tech company\nPREFERRED LOCATIONS: Nagpur, Remote India\n\nROLE TYPE EXCLUSIONS (this candidate wants HANDS-ON ENGINEERING work, NOT these):\nAI content writing, prompt engineering for content/marketing, AI marketing/copywriting roles, non-technical AI trainer roles, data annotation without engineering component\n\nHARD VETOES (auto-disqualify, each tied to resume evidence):\n- IT services/outsourcing companies without AI/ML title (evidence: The candidate's profile is clearly AI/ML/product-engineering focused, and they have no experience in IT services/outsourcing companies)\n- Roles requiring more than 2 years of experience (evidence: The candidate is a fresher with less than 2 years of experience)"
+  "_scoring_prompt": "CANDIDATE: Shashwat Mahajan\nSTATUS: Final year B.Tech student, interning as Generative AI Engineer\nEDUCATION: B.Tech in Computer Science Engineering in Computer Science Engineering from Yeshwantrao Chavan College of Engineering, Nagpur\nGRADUATION: 2027 batch | CGPA: 8.00 / 10\nEXPERIENCE LEVEL: fresher (max 2 years)\n\nTECHNICAL SKILLS:\nPython, Java, JavaScript, LLMs, RAG, LangChain, LangGraph, CrewAI, AWS Bedrock, AWS Bedrock AgentCore, AgentCore Memory, Prompt Engineering, RAGAS, HuggingFace, Vector Embeddings, ChromaDB, XGBoost, FastAPI, Docker, GitHub Actions, AWS S3, Node.js, PostgreSQL, MongoDB, REST APIs, WebSockets, AWS (Bedrock, AgentCore, S3), Docker, GitHub Actions, CI/CD, PostgreSQL, MongoDB, SQL, React.js, Node.js, SMOTE, BeautifulSoup, Brevo SMTP, Groq API, Ollama\n\nCOMPETITIVE PROGRAMMING:\nLeetCode: 1538 rating, 400+ problems solved\nCodeChef: 2-Star Coder\n\n\nKEY PROJECTS:\n- JobIntel Agent: A multi-agent CrewAI pipeline for job intelligence, sourcing jobs across multiple platforms and ranking results by priority. Stack: Python, CrewAI, LangChain, Playwright, SendGrid, LinkedIn/Indeed/Naukri APIs, Vector Embeddings. Intent-based job matching using semantic vector embeddings; Automated end-to-end intelligence delivery via SendGrid email report\n- Financial Analyst RAG System: A production RAG pipeline for real-time multi-company financial analysis, applying the RAGAS evaluation framework to benchmark retrieval faithfulness and answer relevance. Stack: Python, LangChain, ChromaDB, HuggingFace, RAGAS, AWS S3, GitHub Actions. Engineered HuggingFace query-expansion for cross-company comparison accuracy; Implemented LLM output guardrails to constrain responses to grounded, cited content\n- Credit Risk Assessment System: A full-stack ML system for credit risk assessment, investigating severe class imbalance in a 10,000-record credit dataset using SMOTE oversampling and training an XGBoost classifier. Stack: React.js, FastAPI, XGBoost, Docker, GitHub Actions, SMOTE. Trained XGBoost classifier achieving 88% accuracy; Architected full inference pipeline containerised with Docker and CI/CD via GitHub Actions\n- AWS Bedrock AgentCore Agent: A stateful AI agent using AWS Bedrock AgentCore and LangGraph, built and deployed on AWS infrastructure. Stack: Python, LangGraph, AWS Bedrock, AWS Bedrock AgentCore, AgentCore Memory, Docker, FastAPI, XGBoost, GitHub Actions, SMOTE. Designed stateful agent orchestration workflows with long-term memory management and contextual reasoning; Containerized runtimes with Docker and deployed cloud-native agent services on AWS infrastructure\n\nWORK EXPERIENCE:\n- Generative AI Engineer Intern at Technical Hub (Jan 2026 \u2013 Present): Designed and shipped LangChain-based RAG pipelines serving live end users, optimised vector retrieval, and applied systematic prompt evaluation and failure analysis to reduce hallucination rates.\n\nACHIEVEMENTS: LeetCode Rating 1538; CodeChef 2-Star Coder; Machine Learning Specialization \u2014 Codebasics.io; Full Stack Web Development (MERN Stack)\nHACKATHONS: DevOnboard \u2014 AI Repository Intelligence Platform (Individual); Smart Attendance System (Team Lead, 6-Member Team); SITNOVATE \u2014 Real-Time Chat Engine (Individual)\nPUBLICATIONS: \n\nTARGET ROLES (priority order, derived from resume evidence): Generative AI Engineer, LLM Engineer, Backend Engineer, Software Engineer, Full Stack Developer, Data Scientist, ML Engineer\nTARGET COMPANIES: no explicit preference \u2014 any reputable tech company\nPREFERRED LOCATIONS: Nagpur, Remote India\n\nROLE TYPE EXCLUSIONS (this candidate wants HANDS-ON ENGINEERING work, NOT these):\nAI content writing, prompt engineering for content/marketing, AI marketing/copywriting roles, non-technical AI trainer roles, data annotation without engineering component\n\nHARD VETOES (auto-disqualify, each tied to resume evidence):\n- IT services/outsourcing companies without AI/ML title (evidence: The candidate's profile is clearly AI/ML/product-engineering focused, with experience in Generative AI, LLMs, and ML.)\n- Roles requiring 3+ years of experience (evidence: The candidate is a final year B.Tech student and a fresher.)"
 }

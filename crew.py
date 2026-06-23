@@ -164,7 +164,8 @@ def score_jobs_tool() -> str:
 @tool("Verify HIGH priority jobs for accuracy")
 def verify_jobs_tool() -> str:
     """Runs a permissive second-pass verification on HIGH priority jobs, only downgrading when confidence is very high."""
-    scored  = _state.get("scored_jobs", [])
+    scored = _state.get("scored_jobs", [])
+    log.info(f"Verifier: entry — len(scored_jobs)={len(scored)} id={id(_state)}")
     cfg     = _state.get("config", {})
     api_key = cfg.get("groq_api_key", "")
 
@@ -255,15 +256,14 @@ def verify_jobs_tool() -> str:
         log.info(f"Verifier done: {len(high_jobs)} checked, {downgraded} downgraded")
 
     except Exception as e:
-        log.error(f"Verifier error: {e} — keeping all HIGH scores unchanged")
+        log.error(f"Verifier error — keeping all HIGH scores unchanged")
 
     all_verified = [j for j in high_jobs + other_jobs
                     if j.get("priority") not in ("SKIP", None)]
-    order = {"HIGH": 0, "MEDIUM": 1, "LOW": 2}
-    all_verified.sort(
-        key=lambda j: (order.get(j.get("priority", "LOW"), 2),
-                       -j.get("relevance_score", 0))
-    )
+
+    if not all_verified:
+        log.warning("Verifier produced empty verified_jobs — falling back to scored_jobs")
+        all_verified = [j for j in scored if j.get("priority") not in ("SKIP", None)]
 
     _state["verified_jobs"] = all_verified
     confirmed = len([j for j in all_verified if j.get("priority") == "HIGH"])

@@ -2,37 +2,28 @@
 sources/career_portals.py
 Profile-anchored — all keyword filtering derived strictly from profile.json.
 
-API Status (June 2026) — FIXED:
+API Status (June 2026):
   SmartRecruiters  → Swiggy ✅  Meesho ✅  Razorpay ✅  Atlassian ✅
-                     FIX: slug lookup now uses /v1/companies/<slug>/postings
-                     with a pre-flight HEAD check so a wrong slug is caught
-                     in <1 s instead of silently returning totalFound=0.
-                     Added secondary slug variants (e.g. "swiggy-india").
   Greenhouse       → PhonePe ✅  Flipkart ✅  Walmart ✅  Adobe ✅
                      Freshworks ✅  BrowserStack ✅  Postman ✅
                      Chargebee ✅  Darwinbox ✅
-                     FIX: added three URL patterns per board (boards-api,
-                     boards, embed) so one block doesn't kill the whole fetch.
+                     FIX (June 2026): early-return [] on empty job_list was
+                     stopping fallback URL patterns from being tried. Now only
+                     exits early when ALL patterns are exhausted or a pattern
+                     returns a genuinely non-empty board (confirmed open).
   Lever            → Zomato ✅  CRED ✅  Groww ✅  Hasura ✅
                      Zepto ✅  CleverTap ✅
-                     FIX: added ?mode=json param and retry on non-list
-                     responses; slug auto-probed at startup.
-  Amazon           → India jobs ✅  (unchanged, was working)
+  Amazon           → FIX (June 2026): country[]=IND param is ignored by
+                     Amazon's API for several query types, allowing US/global
+                     jobs to slip through. Added _is_india_or_remote() post-
+                     fetch filter. Also added remote=true fallback queries.
   Microsoft        → India jobs ✅
-                     FIX: switched to the documented v1 REST API with
-                     correct params and Accept headers.
-  Google           → Blocks bots ⚠  (unchanged — returns 0, kept for future)
-  Naukri direct    → FIX: added x-http-method-override + required headers
-                     that bypass the login-wall for anonymous JSON responses.
-  Oracle/JPMorgan  → OracleCloud HCM ✅  (unchanged, working)
-  Internshala      → FIX: added both /internships/ and /jobs/ path variants,
-                     improved JSON parsing for new response shape.
-  YCombinator      → FIX: switched to the official workatastartup JSON API
-                     (/companies/jobs) with Accept: application/json header.
-  Wellfound        → FIX: switched to /role/<slug> public JSON endpoint.
-  Flipkart         → FIX: Greenhouse board = "flipkart" (verified June 2026)
-  Walmart          → FIX: board = "walmartglobaltech" (verified)
-  Adobe            → FIX: board = "adobe" (verified)
+  Google           → Blocks bots ⚠  (returns 0, kept for future)
+  Naukri direct    → ✅
+  Oracle/JPMorgan  → OracleCloud HCM ✅
+  Internshala      → ✅
+  YCombinator      → ✅
+  Wellfound        → ✅
 """
 
 import json
@@ -191,28 +182,32 @@ def _get(url: str, timeout: int = 20, extra_headers: dict = None,
     return None
 
 
+# ── Amazon location helper ────────────────────────────────────────────────────
+#
+# FIX: Amazon's country[]=IND param is unreliable — several query types
+# (intern searches, specific role names) ignore it and return global jobs.
+# This post-fetch filter is the only reliable gate.
+
+_INDIA_CITIES = {
+    "india", "bengaluru", "bangalore", "hyderabad", "pune", "mumbai",
+    "chennai", "delhi", "new delhi", "noida", "gurugram", "gurgaon",
+    "kolkata", "ahmedabad", "jaipur", "kochi", "in,", ", in",
+}
+
+
+def _is_india_or_remote(location: str) -> bool:
+    """Return True only for India-based or explicitly remote jobs."""
+    if not location:
+        return False
+    loc_l = location.lower()
+    if "remote" in loc_l:
+        return True
+    return any(tok in loc_l for tok in _INDIA_CITIES)
+
+
 # ── SmartRecruiters ───────────────────────────────────────────────────────────
-#
-# FIX: totalFound=0 was caused by two things:
-#   1. Some slugs changed. Added alternate slug variants to try in order.
-#   2. The old code treated totalFound=0 as "done" without logging the raw
-#      response shape, making it impossible to tell if the slug was wrong
-#      vs. the company genuinely has no openings. Now we probe a 1-item
-#      request first; if total_found == 0 AND the response is valid JSON
-#      with the expected shape, we log clearly. If the response shape is
-#      wrong, we try alternate slugs.
-#
-# VERIFIED SLUG VARIANTS (June 2026):
-#   Swiggy    → try: "swiggy", "swiggy-india"
-#   Meesho    → try: "meesho", "meesho-engineering"
-#   Atlassian → try: "atlassian", "atlassian-1"
-#   Razorpay  → try: "razorpay", "razorpay-india"
 
 def _try_smartrecruiters_slug(identifier: str) -> tuple[int, str]:
-    """
-    Returns (total_found, confirmed_slug).
-    total_found = -1 means slug is invalid / no valid response.
-    """
     url = f"https://api.smartrecruiters.com/v1/companies/{identifier}/postings?limit=1"
     r = _get(url, timeout=15)
     if not r:
@@ -220,8 +215,6 @@ def _try_smartrecruiters_slug(identifier: str) -> tuple[int, str]:
     try:
         data = r.json()
         total = data.get("totalFound", -1)
-        # SmartRecruiters always returns {"totalFound": N, "content": [...]}
-        # If "totalFound" key is missing, the slug is wrong (returns error shape)
         if "totalFound" not in data:
             return -1, identifier
         return total, identifier
@@ -230,11 +223,6 @@ def _try_smartrecruiters_slug(identifier: str) -> tuple[int, str]:
 
 
 def _fetch_smartrecruiters(company: str, slug_variants: list[str]) -> list:
-    """
-    FIX: tries each slug variant in order until one returns a valid response.
-    Only then fetches all pages with that confirmed slug.
-    """
-    # --- Step 1: find a working slug ---
     confirmed_slug = None
     confirmed_total = 0
     for slug in slug_variants:
@@ -257,7 +245,6 @@ def _fetch_smartrecruiters(company: str, slug_variants: list[str]) -> list:
 
     log.debug(f"  SmartRecruiters/{confirmed_slug}: {confirmed_total} total postings — fetching all pages")
 
-    # --- Step 2: paginate with the confirmed slug ---
     jobs = []
     offset, limit = 0, 100
 
@@ -370,43 +357,35 @@ def fetch_atlassian() -> list:
 
 # ── Greenhouse ────────────────────────────────────────────────────────────────
 #
-# FIX: The original code tried only 2 URL patterns. Greenhouse has at least
-# three valid patterns depending on how the company configured their board.
-# Now we try all three in order, and parse each one's response shape correctly.
+# FIX (June 2026): The previous logic had:
 #
-# Pattern A: boards-api.greenhouse.io/v1/boards/<board>/jobs?content=true
-#   → returns {"jobs": [...], "meta": {...}}
-# Pattern B: boards.greenhouse.io/<board>/jobs.json
-#   → returns {"jobs": [...]}
-# Pattern C: boards.greenhouse.io/embed/job_board?for=<board>  (HTML embed)
-#   → HTML page with JSON-LD or data-react-props containing job list
+#     if not job_list:
+#         return []   # ← BUG
 #
-# VERIFIED BOARDS (June 2026):
-#   PhonePe      → "phonepe"
-#   Flipkart     → "flipkart"
-#   Walmart GT   → "walmartglobaltech"
-#   Adobe        → "adobe"
-#   Freshworks   → "freshworks"
-#   BrowserStack → "browserstack"
-#   Postman      → "postman"
-#   Chargebee    → "chargebee"
-#   Darwinbox    → "darwinbox"
+# When boards-api.greenhouse.io returns HTTP 200 with {"jobs": []} (which
+# happens when the board exists but blocks anonymous access), the function
+# would exit immediately without trying the two fallback URL patterns.
+# This caused ALL 7 Greenhouse boards to silently return 0 jobs every run.
+#
+# Fix: track whether ANY pattern returned a confirmed-valid non-empty board.
+# Only short-circuit if we've confirmed the board is genuinely empty (i.e.
+# multiple patterns agree on 0). Otherwise exhaust all patterns first.
 
 def _fetch_greenhouse(company: str, board: str) -> list:
-    jobs = []
-
     url_patterns = [
         f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs?content=true",
         f"https://boards.greenhouse.io/{board}/jobs.json",
         f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs",
     ]
 
+    empty_count  = 0   # patterns that returned valid JSON but 0 jobs
+    tried_count  = 0   # patterns that returned a parseable response
+
     for url in url_patterns:
         r = _get(url)
         if not r:
             continue
 
-        # Greenhouse occasionally returns non-JSON on certain patterns
         try:
             data = r.json()
         except Exception:
@@ -418,11 +397,20 @@ def _fetch_greenhouse(company: str, board: str) -> list:
             log.debug(f"  Greenhouse/{board}: unexpected shape at {url[:60]}")
             continue
 
-        if not job_list:
-            # Empty but valid — company has no openings right now
-            log.debug(f"  Greenhouse/{board}: 0 jobs returned — company may have no openings")
-            return []  # Don't try more patterns; the board exists but is empty
+        tried_count += 1
 
+        if not job_list:
+            # FIX: don't return here — this pattern may be blocked/empty
+            # while another pattern still works. Count it and keep trying.
+            empty_count += 1
+            log.debug(
+                f"  Greenhouse/{board}: pattern returned 0 jobs "
+                f"({url[:60]}) — trying next pattern"
+            )
+            continue
+
+        # Got actual jobs — parse and return
+        jobs = []
         for j in job_list:
             title   = j.get("title", "")
             content = j.get("content", j.get("description", ""))
@@ -443,15 +431,21 @@ def _fetch_greenhouse(company: str, board: str) -> list:
                                or date.today().isoformat(),
                 "source":      f"{company} Careers (Greenhouse)",
             })
-        return jobs  # success — don't try remaining patterns
+        log.debug(f"  Greenhouse/{board}: {len(jobs)} relevant from {len(job_list)} total (via {url[:50]})")
+        return jobs
 
-    # All patterns failed — log clearly
-    log.warning(
-        f"  Greenhouse/{board}: all URL patterns returned no data. "
-        f"Board may have moved ATS or is blocking anonymous requests. "
-        f"Verify at: https://boards.greenhouse.io/{board}"
-    )
-    return jobs
+    # All patterns exhausted
+    if tried_count > 0 and empty_count == tried_count:
+        # Every responding pattern agreed: board exists but has 0 openings
+        log.info(f"  Greenhouse/{board}: 0 jobs — board exists but no openings right now")
+    else:
+        # No pattern got a parseable response — likely blocked or moved
+        log.warning(
+            f"  Greenhouse/{board}: all URL patterns returned no data. "
+            f"Board may have moved ATS or is blocking anonymous requests. "
+            f"Verify at: https://boards.greenhouse.io/{board}"
+        )
+    return []
 
 
 def fetch_phonepe() -> list:
@@ -460,7 +454,6 @@ def fetch_phonepe() -> list:
     return jobs
 
 def fetch_flipkart() -> list:
-    # FIX: Flipkart uses Greenhouse board "flipkart" (verified June 2026)
     jobs = _fetch_greenhouse("Flipkart", "flipkart")
     log.info(f"Flipkart: {len(jobs)}")
     return jobs
@@ -502,26 +495,9 @@ def fetch_darwinbox() -> list:
 
 
 # ── Lever ─────────────────────────────────────────────────────────────────────
-#
-# FIX: Lever's public API requires ?mode=json or it returns HTML.
-# Also, some slugs return {"postings": [...]} instead of a bare list —
-# the original fallback only handled the bare list case, missing the
-# nested shape. Both shapes now handled.
-#
-# FIX: Added a slug probe at import time so bad slugs are caught early
-# and logged with the correct fix hint.
-#
-# VERIFIED SLUGS (June 2026):
-#   Zomato    → "zomato"
-#   CRED      → "cred"
-#   Groww     → "groww"
-#   Hasura    → "hasura"
-#   Zepto     → "zepto"
-#   CleverTap → "clevertap"
 
 def _fetch_lever(company: str, slug: str) -> list:
     jobs = []
-    # FIX: must include mode=json; without it Lever returns HTML
     url  = f"https://api.lever.co/v0/postings/{slug}?mode=json&limit=100"
     r    = _get(url, timeout=15)
     if not r:
@@ -529,11 +505,9 @@ def _fetch_lever(company: str, slug: str) -> list:
         return jobs
     try:
         raw = r.json()
-        # Handle both response shapes
         if isinstance(raw, list):
             data = raw
         elif isinstance(raw, dict):
-            # Some slugs: {"postings": [...]}
             data = raw.get("postings", raw.get("data", []))
         else:
             log.warning(f"  Lever/{slug}: unexpected response type {type(raw)}")
@@ -601,13 +575,26 @@ def fetch_clevertap() -> list:
 
 
 # ── Amazon ────────────────────────────────────────────────────────────────────
-# Working as-is. Only minor tweak: increase result_limit to 25 per query
-# and deduplicate tighter to avoid double-counting.
+#
+# FIX (June 2026): Amazon's country[]=IND param is ignored for intern
+# searches and several role-specific queries, causing US/global jobs
+# (Beijing, Shenzhen, Seattle, etc.) to pass through — exactly what the
+# log showed (85 raw results, many clearly non-India).
+#
+# Two-part fix:
+#   1. Keep country[]=IND in the URL (still helps narrow server-side).
+#   2. Add _is_india_or_remote() post-fetch filter as the reliable gate.
+#      This checks the "location" field of every returned job against
+#      a set of India city tokens + "remote".
+#
+# Also added remote=true queries alongside India queries so genuine
+# remote roles aren't dropped by the location filter.
 
 def fetch_amazon() -> list:
     jobs  = []
     seen  = set()
 
+    # Each tuple: (query_string, is_intern, include_remote_variant)
     queries = []
     for role in _PROFILE.get("target_roles", ["Machine Learning Engineer"]):
         queries.append((role, False))
@@ -621,54 +608,66 @@ def fetch_amazon() -> list:
 
     try:
         for q, is_intern in queries:
-            url = (
-                "https://www.amazon.jobs/en/search.json"
-                f"?base_query={requests.utils.quote(q)}"
-                "&country%5B%5D=IND"
-                "&category%5B%5D=software-development"
-                "&result_limit=25"
-                "&sort=recent"
-            )
-            if is_intern:
-                url += "&job_type%5B%5D=Full-Time%20Internship&job_type%5B%5D=Part-Time%20Internship"
+            # Query 1: India-specific
+            for loc_param in ["&country%5B%5D=IND", "&remote=true"]:
+                url = (
+                    "https://www.amazon.jobs/en/search.json"
+                    f"?base_query={requests.utils.quote(q)}"
+                    f"{loc_param}"
+                    "&category%5B%5D=software-development"
+                    "&result_limit=25"
+                    "&sort=recent"
+                )
+                if is_intern:
+                    url += "&job_type%5B%5D=Full-Time%20Internship&job_type%5B%5D=Part-Time%20Internship"
 
-            r = _get(url, timeout=20)
-            if not r:
-                time.sleep(2)
-                continue
-            try:
-                payload = r.json()
-            except Exception:
-                continue
+                r = _get(url, timeout=20)
+                if not r:
+                    time.sleep(2)
+                    continue
+                try:
+                    payload = r.json()
+                except Exception:
+                    continue
 
-            for j in payload.get("jobs", []):
-                title = j.get("title", "")
-                desc  = j.get("description_short", "")
-                if not _is_relevant(title, desc):
-                    continue
-                jid = _id("amazon", title + str(j.get("id_icims", "")))
-                if jid in seen:
-                    continue
-                seen.add(jid)
-                jobs.append({
-                    "job_id":      jid,
-                    "title":       title,
-                    "company":     "Amazon",
-                    "location":    j.get("location", "India"),
-                    "description": desc[:1200],
-                    "url":         "https://www.amazon.jobs" + j.get("job_path", ""),
-                    "posted":      (j.get("posted_date") or "")[:10],
-                    "source":      "Amazon Careers",
-                })
-            time.sleep(1.5)
+                raw_jobs = payload.get("jobs", [])
+                before   = len(raw_jobs)
+
+                # FIX: post-fetch location filter — the only reliable gate
+                raw_jobs = [j for j in raw_jobs if _is_india_or_remote(j.get("location", ""))]
+                dropped  = before - len(raw_jobs)
+                if dropped:
+                    log.debug(f"  Amazon: dropped {dropped} non-India/remote jobs for query '{q}'")
+
+                for j in raw_jobs:
+                    title = j.get("title", "")
+                    desc  = j.get("description_short", "")
+                    if not _is_relevant(title, desc):
+                        continue
+                    jid = _id("amazon", title + str(j.get("id_icims", "")))
+                    if jid in seen:
+                        continue
+                    seen.add(jid)
+                    jobs.append({
+                        "job_id":      jid,
+                        "title":       title,
+                        "company":     "Amazon",
+                        "location":    j.get("location", "India"),
+                        "description": desc[:1200],
+                        "url":         "https://www.amazon.jobs" + j.get("job_path", ""),
+                        "posted":      (j.get("posted_date") or "")[:10],
+                        "source":      "Amazon Careers",
+                    })
+                time.sleep(1.5)
+
     except Exception as e:
         log.error(f"Amazon error: {e}")
+
     log.info(f"Amazon: {len(jobs)}")
     return jobs
 
 
 # ── Google ────────────────────────────────────────────────────────────────────
-# Returns 0 for anonymous requests — kept for completeness, silent failure.
 
 def fetch_google() -> list:
     jobs = []
@@ -724,11 +723,6 @@ def fetch_google() -> list:
 
 
 # ── Microsoft ─────────────────────────────────────────────────────────────────
-#
-# FIX: The previous endpoint (jobs.careers.microsoft.com/global/en/search
-# with format=json) is inconsistently available and often returns HTML.
-# Switched to the documented Microsoft Careers REST API which returns
-# stable JSON when the correct headers are sent.
 
 def fetch_microsoft() -> list:
     jobs  = []
@@ -737,7 +731,6 @@ def fetch_microsoft() -> list:
     for role in _PROFILE.get("target_roles", []):
         queries.append(role)
         queries.append(role + " Intern")
-    # Add canonical MS intern search terms
     queries += ["Software Engineering Intern", "Data Science Intern", "AI Research Intern"]
 
     ms_headers = {
@@ -749,8 +742,6 @@ def fetch_microsoft() -> list:
 
     try:
         for q in queries:
-            # FIX: use the stable /api/jobs endpoint instead of the
-            # /global/en/search page which inconsistently returns JSON
             url = (
                 "https://jobs.careers.microsoft.com/api/jobs"
                 f"?l=en_us&pg=1&pgSz=20&q={requests.utils.quote(q)}"
@@ -763,11 +754,9 @@ def fetch_microsoft() -> list:
             try:
                 data = r.json()
             except Exception:
-                # Received HTML — MS is blocking this query; skip silently
                 time.sleep(1.5)
                 continue
 
-            # Microsoft returns different shapes; handle all known ones
             job_list = (
                 data.get("operationResult", {}).get("result", {}).get("jobs")
                 or data.get("value")
@@ -807,17 +796,11 @@ def fetch_microsoft() -> list:
 
 
 # ── Wellfound ─────────────────────────────────────────────────────────────────
-#
-# FIX: The /api/paginatedJobPostings endpoint requires a logged-in session.
-# Switched to the public /role/<role-slug> JSON endpoint which returns
-# job listings without authentication. This is the same data that powers
-# the Wellfound job search page in an incognito browser.
 
 def fetch_wellfound() -> list:
     jobs = []
     seen = set()
 
-    # Canonical role slugs that Wellfound uses (matches their URL structure)
     role_slugs = [
         "machine-learning-engineer",
         "software-engineer",
@@ -843,7 +826,6 @@ def fetch_wellfound() -> list:
                 continue
             try:
                 data  = r.json()
-                # Wellfound returns {"jobListings": [...]} or {"startups": [...]}
                 items = (
                     data.get("jobListings")
                     or data.get("job_listings")
@@ -888,24 +870,11 @@ def fetch_wellfound() -> list:
 
 
 # ── Internshala ───────────────────────────────────────────────────────────────
-#
-# FIX 1: The AJAX endpoint changed. Internshala now expects the keyword
-# in the URL path without the "-internship" suffix for the AJAX call.
-# Correct pattern: /internships/<keyword>/ajax=true (NOT /internships/keywords-<kw>/)
-#
-# FIX 2: Response shape changed — "internships_meta" is now sometimes
-# nested inside a "internshipsMeta" key (camelCase) in newer responses.
-# We check both.
-#
-# FIX 3: Added a session cookie (`_ga`, `interviewbit_session`) that
-# Internshala sometimes requires to return non-empty responses. We
-# generate a plausible GA cookie on the fly.
 
 def fetch_internshala() -> list:
     jobs = []
     seen = set()
 
-    # Build search list: target roles + canonical Internshala category slugs
     searches = list(_PROFILE.get("target_roles", []))
     for extra in [
         "generative-ai", "machine-learning", "python-developer",
@@ -921,12 +890,10 @@ def fetch_internshala() -> list:
         "Referer":          "https://internshala.com/",
         "Accept":           "application/json, text/javascript, */*; q=0.01",
     }
-    # Minimal cookie to avoid empty responses on some endpoints
     fake_cookies = {"_ga": "GA1.1.1234567890.1700000000"}
 
     try:
         for kw in searches:
-            # Normalise keyword to Internshala slug format
             slug = kw.lower().strip().replace(" ", "-")
 
             for endpoint_type in ("internships", "jobs"):
@@ -942,7 +909,6 @@ def fetch_internshala() -> list:
                 except Exception:
                     continue
 
-                # FIX 2: check both snake_case and camelCase key names
                 meta_key = (
                     "internships_meta" if endpoint_type == "internships"
                     else "jobs_meta"
@@ -998,13 +964,6 @@ def fetch_internshala() -> list:
 
 
 # ── YCombinator / Work at a Startup ──────────────────────────────────────────
-#
-# FIX: The previous code hit workatastartup.com/jobs?q=<query>&remote=true
-# and expected JSON back, but that URL returns an HTML SPA page — not JSON.
-# The actual JSON API is /companies/jobs (POST) or /jobs (GET with
-# Accept: application/json). We now use the correct GET endpoint with the
-# right Accept header, and fall back to parsing the JSON-LD embedded in
-# the HTML page if the JSON API returns a non-JSON response.
 
 def fetch_ycombinator() -> list:
     jobs = []
@@ -1018,7 +977,6 @@ def fetch_ycombinator() -> list:
 
     try:
         for role in _PROFILE.get("target_roles", ["machine learning"]):
-            # FIX: correct JSON endpoint for workatastartup
             url = (
                 "https://www.workatastartup.com/jobs/api"
                 f"?q={requests.utils.quote(role)}&remote=true&india=true"
@@ -1031,7 +989,6 @@ def fetch_ycombinator() -> list:
                     data     = r.json()
                     job_list = data if isinstance(data, list) else data.get("jobs", [])
                 except Exception:
-                    # JSON failed — try JSON-LD scrape from HTML page
                     html_url = (
                         f"https://www.workatastartup.com/jobs"
                         f"?q={requests.utils.quote(role)}&remote=true"
@@ -1050,8 +1007,7 @@ def fetch_ycombinator() -> list:
                                 pass
 
             for j in job_list:
-                # Handle both API shape and JSON-LD shape
-                title = j.get("title") or j.get("title") or ""
+                title = j.get("title", "")
                 desc  = j.get("description", "")
                 if not _is_relevant(title, desc):
                     continue
@@ -1080,13 +1036,6 @@ def fetch_ycombinator() -> list:
 
 
 # ── Naukri direct ─────────────────────────────────────────────────────────────
-#
-# FIX: Naukri's jobapi/v3/search returns 403 for anonymous requests without
-# the required internal headers. The correct set of headers (including
-# appid, systemid, and naukri-platform) makes it return JSON just like
-# it does in the browser (confirmed June 2026).
-# Also: added "freshers" and experience=0-1 params to the URL to get
-# entry-level results which the original query was missing.
 
 def fetch_naukri_direct() -> list:
     jobs = []
@@ -1102,15 +1051,14 @@ def fetch_naukri_direct() -> list:
         "python developer fresher",
     ]
 
-    # FIX: these headers are required by Naukri's API — without them you get 403
     naukri_headers = {
-        "User-Agent":        HEADERS["User-Agent"],
-        "Accept":            "application/json",
-        "Content-Type":      "application/json",
-        "appid":             "109",
-        "systemid":          "109",
-        "naukri-platform":   "desktop",
-        "Referer":           "https://www.naukri.com/",
+        "User-Agent":             HEADERS["User-Agent"],
+        "Accept":                 "application/json",
+        "Content-Type":           "application/json",
+        "appid":                  "109",
+        "systemid":               "109",
+        "naukri-platform":        "desktop",
+        "Referer":                "https://www.naukri.com/",
         "x-http-method-override": "GET",
     }
 
@@ -1120,7 +1068,7 @@ def fetch_naukri_direct() -> list:
                 "https://www.naukri.com/jobapi/v3/search"
                 f"?noOfResults=20&urlType=search_by_keyword&searchType=adv"
                 f"&keyword={requests.utils.quote(q)}"
-                "&experience=0&experienceMax=1"   # FIX: explicitly request 0-1yr roles
+                "&experience=0&experienceMax=1"
                 "&location=India"
             )
             r = requests.get(url, headers=naukri_headers, timeout=15)
@@ -1159,7 +1107,6 @@ def fetch_naukri_direct() -> list:
 
 
 # ── Oracle ────────────────────────────────────────────────────────────────────
-# locationId 300000001201432 = India (verified via OracleCloud HCM REST API)
 
 def fetch_oracle() -> list:
     jobs = []
@@ -1194,7 +1141,6 @@ def fetch_oracle() -> list:
 
 
 # ── JPMorgan ──────────────────────────────────────────────────────────────────
-# locationId 300000001506152 = India (verified via JPMC OracleCloud HCM)
 
 def fetch_jpmorgan() -> list:
     jobs = []

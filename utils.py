@@ -83,22 +83,72 @@ Return ONLY valid JSON array:
 
 def deduplicate_batch(jobs: list) -> list:
     """
-    Deduplicate within a single fetch only — keeps the richest record per role.
-    Does NOT filter jobs that appeared in earlier reports.
+    FIX 5: Cross-source dedup that catches same job posted across multiple
+    sources (e.g. WebBoost appearing 3x from LinkedIn + Remotive + career portal).
+
+    Old version keyed on job_id first, then fell back to title|company only
+    when job_id was missing. Jobs from different sources get different job_ids,
+    so the title|company fallback never fired — duplicates slipped through.
+
+    New approach: always register both job_id and title|company as keys,
+    pointing to the same record. A second encounter on either key deduplicates.
+    Keeps the richest record (longest description) per logical role.
     """
-    best: dict[str, dict] = {}
+    best_by_id:      dict[str, dict] = {}   # job_id  → job
+    best_by_title:   dict[str, dict] = {}   # title|company → job
+
+    def _title_key(job: dict) -> str:
+        t = (job.get("title") or "").strip().lower()
+        c = (job.get("company") or "").strip().lower()
+        return f"{t}|{c}"
+
+    def _is_richer(candidate: dict, existing: dict) -> bool:
+        return len(candidate.get("description") or "") > len(existing.get("description") or "")
+
     for job in jobs:
-        jid = (job.get("job_id") or "").strip()
-        key = jid or f"{job.get('title', '').strip().lower()}|{job.get('company', '').strip().lower()}"
-        if not key or key == "|":
+        jid   = (job.get("job_id") or "").strip()
+        tkey  = _title_key(job)
+        valid_tkey = tkey != "|" and bool(tkey.replace("|", "").strip())
+
+        # Check if we've already seen this job via title|company
+        if valid_tkey and tkey in best_by_title:
+            existing = best_by_title[tkey]
+            if _is_richer(job, existing):
+                # Replace with richer version; keep both index entries consistent
+                best_by_title[tkey] = job
+                if jid:
+                    best_by_id[jid] = job
+                old_jid = (existing.get("job_id") or "").strip()
+                if old_jid and old_jid in best_by_id:
+                    best_by_id[old_jid] = job
+            continue  # already registered — skip re-registration
+
+        # Check if we've seen this job_id before
+        if jid and jid in best_by_id:
+            existing = best_by_id[jid]
+            if _is_richer(job, existing):
+                best_by_id[jid] = job
+                old_tkey = _title_key(existing)
+                if old_tkey in best_by_title:
+                    best_by_title[old_tkey] = job
             continue
-        existing = best.get(key)
-        if not existing:
-            best[key] = job
-            continue
-        if len(job.get("description") or "") > len(existing.get("description") or ""):
-            best[key] = job
-    return list(best.values())
+
+        # New job — register under both keys
+        if jid:
+            best_by_id[jid] = job
+        if valid_tkey:
+            best_by_title[tkey] = job
+
+    # Collect unique objects (both dicts may point to same object)
+    seen_object_ids: set = set()
+    result: list = []
+    for job in list(best_by_id.values()) + list(best_by_title.values()):
+        oid = id(job)
+        if oid not in seen_object_ids:
+            seen_object_ids.add(oid)
+            result.append(job)
+
+    return result
 
 
 def load_seen(path: Path) -> dict:
