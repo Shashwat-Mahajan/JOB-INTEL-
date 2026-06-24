@@ -35,18 +35,6 @@ PROFILE_OUT = BASE / "config" / "profile.json"
 
 
 CURRENT_PROJECTS = """
-PROJECT I AM CURRENTLY WORKING ON:
-
-Job Intel Agent (this system):
-- Multi-agent job discovery system using CrewAI + Groq + Ollama
-- Scout agent fetches jobs from 15 sources (LinkedIn, Naukri, Amazon, Google, etc.)
-- Analyst agent scores jobs using Groq llama-3.3-70b-versatile with intent matching
-- Verifier agent does second-pass accuracy check on HIGH priority jobs
-- Reporter agent builds HTML digest and sends via Brevo SMTP
-- Fully automated via GitHub Actions daily cron at 8 AM IST
-- Stack: Python, CrewAI 1.x, Groq API, Ollama, BeautifulSoup, GitHub Actions
-
-(Add any other current projects here before running this script)
 """
 
 
@@ -135,7 +123,7 @@ no markdown, no explanation:
     }
   ],
 
- "target_roles": "DERIVE this from ALL of the candidate's technical skills, project tech stacks, internship titles, and CURRENT_PROJECTS text. Think in TWO tiers: (1) PRIMARY roles — titles directly matching the candidate's most-used tech (e.g. if every project uses LangChain/RAG/LLMs → 'Generative AI Engineer', 'LLM Engineer'); (2) SECONDARY roles — titles matching strong supporting skills that appear across multiple projects (e.g. if the candidate has FastAPI + Docker + REST APIs + PostgreSQL + MongoDB across multiple projects → also add 'Backend Engineer', 'Software Engineer'; if the candidate has React.js + FastAPI → also add 'Full Stack Developer'; if the candidate has XGBoost + ML projects → also add 'Data Scientist', 'ML Engineer'). Include BOTH tiers. A candidate with GenAI primary skills AND strong backend secondary skills should have 6-10 target roles, not just 2-3. Return as a JSON array of strings, primary roles first, secondary roles after.",
+ "target_roles": "DERIVE this strictly from the resume text. Follow this logic: Step 1 — list every distinct technology, framework, and tool mentioned across ALL projects and experience. Step 2 — for each technology cluster, map to the industry job title that hiring managers actually post: (React+Node/FastAPI → 'Full Stack Developer'), (FastAPI/Django/Spring Boot alone → 'Backend Engineer'), (LangChain/RAG/ChromaDB/LLMs/embeddings → 'Generative AI Engineer', 'LLM Engineer'), (TensorFlow/PyTorch/scikit-learn/XGBoost → 'ML Engineer', 'Data Scientist'), (Android/Flutter/React Native → 'Mobile Developer'), (AWS/Docker/Kubernetes/Terraform → 'DevOps Engineer', 'Cloud Engineer'), (React/Vue/Angular alone → 'Frontend Developer'), (any programming language + DSA + projects → always include 'Software Engineer', 'SDE'). Step 3 — rank by how many projects use that cluster — the cluster with most projects becomes PRIMARY roles listed first. Step 4 — return 6-10 role strings as a JSON array. Never invent roles not supported by at least one concrete resume artifact.",
 
   "target_companies": "DERIVE this ONLY if the resume explicitly mentions target companies, applied-to companies, or referral mentions. If the resume contains no explicit company preferences, return an empty array — do NOT invent a generic FAANG/unicorn list.",
 
@@ -350,7 +338,7 @@ def main():
     print(f"  Target roles (derived): {profile.get('target_roles', [])}")
     print(f"  Role exclusions (derived): {profile.get('role_type_exclusions', [])}")
     print(f"  Hard vetoes (derived): {len(profile.get('hard_vetoes', []))} vetoes")
-    print(f"\n⚠️  REVIEW target_roles, role_type_exclusions, and hard_vetoes above.")
+    print(f"\n  REVIEW target_roles, role_type_exclusions, and hard_vetoes above.")
     print(f"   These are now derived from your resume, not generic templates.")
     print(f"   If anything looks wrong, edit config/profile.json directly —")
     print(f"   it's a plain JSON file you can hand-correct.")

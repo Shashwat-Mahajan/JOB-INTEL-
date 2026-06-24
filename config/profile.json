@@ -1,195 +1,115 @@
 {
-  "name": "Shashwat Mahajan",
-  "email": "shashwatmahajan2@gmail.com",
-  "phone": "+91-93569 97907",
-  "linkedin": "linkedin.com/in/shashwatmahajan2",
-  "github": "github.com/Shashwat-Mahajan",
+  "name": "Rushabh Thakurdware",
+  "email": "rushabhthakurdware05@gmail.com",
+  "phone": "(+91) 9172118978",
+  "linkedin": "rushabhthakurdware",
+  "github": "rushabhthakurdware",
   "education": {
-    "degree": "B.Tech in Computer Science Engineering",
-    "branch": "Computer Science Engineering",
-    "college": "Yeshwantrao Chavan College of Engineering, Nagpur",
+    "degree": "B-Tech",
+    "branch": "Computer Science And Engineering",
+    "college": "Yeshwantrao Chavan College of Engineering",
     "graduation_year": "2027",
-    "cgpa": "8.00 / 10"
+    "cgpa": "8.15"
   },
-  "current_status": "Final year B.Tech student, interning as Generative AI Engineer",
+  "current_status": "Final year B.Tech student",
   "technical_skills": {
     "primary_languages": [
-      "Python",
       "Java",
-      "JavaScript"
+      "C",
+      "C++",
+      "Python"
     ],
-    "ai_ml": [
-      "LLMs",
-      "RAG",
-      "LangChain",
-      "LangGraph",
-      "CrewAI",
-      "AWS Bedrock",
-      "AWS Bedrock AgentCore",
-      "AgentCore Memory",
-      "Prompt Engineering",
-      "RAGAS",
-      "HuggingFace",
-      "Vector Embeddings",
-      "ChromaDB",
-      "XGBoost"
-    ],
+    "ai_ml": [],
     "backend": [
-      "FastAPI",
-      "Docker",
-      "GitHub Actions",
-      "AWS S3",
-      "Node.js",
-      "PostgreSQL",
-      "MongoDB",
-      "REST APIs",
-      "WebSockets"
+      "Node js",
+      "Express js",
+      "Spring Boot"
     ],
-    "cloud_devops": [
-      "AWS (Bedrock, AgentCore, S3)",
-      "Docker",
-      "GitHub Actions",
-      "CI/CD"
-    ],
+    "cloud_devops": [],
     "databases": [
-      "PostgreSQL",
-      "MongoDB",
-      "SQL"
+      "MongoDB"
     ],
     "frontend": [
-      "React.js",
-      "Node.js"
+      "React js",
+      "Html",
+      "CSS",
+      "JavaScript"
     ],
     "other": [
-      "SMOTE",
-      "BeautifulSoup",
-      "Brevo SMTP",
-      "Groq API",
-      "Ollama"
+      "ABAP",
+      "Rust",
+      "GSAP",
+      "Servlet",
+      "SAP Erp Software(MM Module)"
     ]
   },
   "competitive_programming": {
-    "leetcode_rating": "1538",
-    "leetcode_problems": "400+",
-    "codechef_rating": "2-Star Coder",
+    "leetcode_rating": "",
+    "leetcode_problems": "",
+    "codechef_rating": "",
     "other": ""
   },
   "projects": [
     {
-      "name": "JobIntel Agent",
-      "description": "A multi-agent CrewAI pipeline for job intelligence, sourcing jobs across multiple platforms and ranking results by priority.",
+      "name": "Air Quality Index",
+      "description": "A web app that shows real-time air quality data for any city with color-coded indicators based on AQI levels.",
       "tech_stack": [
-        "Python",
-        "CrewAI",
-        "LangChain",
-        "Playwright",
-        "SendGrid",
-        "LinkedIn/Indeed/Naukri APIs",
-        "Vector Embeddings"
+        "React js",
+        "Html",
+        "CSS",
+        "JavaScript",
+        "GitHub",
+        "Netlify"
       ],
       "highlights": [
-        "Intent-based job matching using semantic vector embeddings",
-        "Automated end-to-end intelligence delivery via SendGrid email report"
+        "auto-suggest search",
+        "dark mode toggle",
+        "loading spinner",
+        "mobile-responsive interface"
       ],
       "status": "completed"
     },
     {
-      "name": "Financial Analyst RAG System",
-      "description": "A production RAG pipeline for real-time multi-company financial analysis, applying the RAGAS evaluation framework to benchmark retrieval faithfulness and answer relevance.",
+      "name": "Smart QR Based Attendance System",
+      "description": "A full-stack web application to automate attendance tracking using dynamic QR codes.",
       "tech_stack": [
-        "Python",
-        "LangChain",
-        "ChromaDB",
-        "HuggingFace",
-        "RAGAS",
-        "AWS S3",
-        "GitHub Actions"
+        "React",
+        "Tailwind",
+        "MongoDB"
       ],
       "highlights": [
-        "Engineered HuggingFace query-expansion for cross-company comparison accuracy",
-        "Implemented LLM output guardrails to constrain responses to grounded, cited content"
-      ],
-      "status": "completed"
-    },
-    {
-      "name": "Credit Risk Assessment System",
-      "description": "A full-stack ML system for credit risk assessment, investigating severe class imbalance in a 10,000-record credit dataset using SMOTE oversampling and training an XGBoost classifier.",
-      "tech_stack": [
-        "React.js",
-        "FastAPI",
-        "XGBoost",
-        "Docker",
-        "GitHub Actions",
-        "SMOTE"
-      ],
-      "highlights": [
-        "Trained XGBoost classifier achieving 88% accuracy",
-        "Architected full inference pipeline containerised with Docker and CI/CD via GitHub Actions"
-      ],
-      "status": "completed"
-    },
-    {
-      "name": "AWS Bedrock AgentCore Agent",
-      "description": "A stateful AI agent using AWS Bedrock AgentCore and LangGraph, built and deployed on AWS infrastructure.",
-      "tech_stack": [
-        "Python",
-        "LangGraph",
-        "AWS Bedrock",
-        "AWS Bedrock AgentCore",
-        "AgentCore Memory",
-        "Docker",
-        "FastAPI",
-        "XGBoost",
-        "GitHub Actions",
-        "SMOTE"
-      ],
-      "highlights": [
-        "Designed stateful agent orchestration workflows with long-term memory management and contextual reasoning",
-        "Containerized runtimes with Docker and deployed cloud-native agent services on AWS infrastructure"
+        "secure user authentication",
+        "role-based access",
+        "real-time QR code generation and scanning"
       ],
       "status": "completed"
     }
   ],
   "experience": [
     {
-      "role": "Generative AI Engineer Intern",
-      "company": "Technical Hub",
-      "duration": "Jan 2026 \u2013 Present",
-      "description": "Designed and shipped LangChain-based RAG pipelines serving live end users, optimised vector retrieval, and applied systematic prompt evaluation and failure analysis to reduce hallucination rates."
+      "role": "Intern",
+      "company": "Excel Controlinkage PVT LTP",
+      "duration": "06/25 - 07/25",
+      "description": "Gained hands-on experience in SAP MM (Materials Management) and ABAP, understanding the core architecture and data flow of SAP ERP systems."
     }
   ],
   "achievements": [
-    "LeetCode Rating 1538",
-    "CodeChef 2-Star Coder",
-    "Machine Learning Specialization \u2014 Codebasics.io",
-    "Full Stack Web Development (MERN Stack)"
+    "Runner up in SPVT.Palloti Hackthon",
+    "Runner Up in College University Cricket Tournament"
   ],
   "hackathons": [
     {
-      "name": "DevOnboard \u2014 AI Repository Intelligence Platform",
-      "result": "Individual",
-      "description": "Individually built an AI platform that ingests any GitHub repo via URL, parses its structure and source code, and returns cited context-aware answers to developer onboarding questions."
-    },
-    {
-      "name": "Smart Attendance System",
-      "result": "Team Lead, 6-Member Team",
-      "description": "Led architecture design, sprint planning, and task delegation for a 6-member team, architected a real-time WebSocket layer validated under 100+ concurrent users with zero data loss."
-    },
-    {
-      "name": "SITNOVATE \u2014 Real-Time Chat Engine",
-      "result": "Individual",
-      "description": "Scoped and delivered a JWT-secured real-time chat system entirely within 24 hours, made rapid architecture trade-offs under time constraints and shipped a live demo to a judging panel."
+      "name": "SPVT.Palloti Hackthon",
+      "result": "Runner up",
+      "description": ""
     }
   ],
   "publications": [],
   "target_roles": [
-    "Generative AI Engineer",
-    "LLM Engineer",
-    "Backend Engineer",
     "Software Engineer",
     "Full Stack Developer",
-    "Data Scientist",
-    "ML Engineer"
+    "Backend Engineer",
+    "Frontend Developer"
   ],
   "target_companies": [],
   "location_preferences": [
@@ -198,7 +118,7 @@
   ],
   "graduation_batch": "2027",
   "experience_level": "fresher",
-  "max_experience_years": 2,
+  "max_experience_years": 0,
   "role_type_exclusions": [
     "AI content writing",
     "prompt engineering for content/marketing",
@@ -209,12 +129,8 @@
   "hard_vetoes": [
     {
       "veto": "IT services/outsourcing companies without AI/ML title",
-      "resume_evidence": "The candidate's profile is clearly AI/ML/product-engineering focused, with experience in Generative AI, LLMs, and ML."
-    },
-    {
-      "veto": "Roles requiring 3+ years of experience",
-      "resume_evidence": "The candidate is a final year B.Tech student and a fresher."
+      "resume_evidence": "Aspiring Software Engineer with hands-on experience in full-stack web development and Java"
     }
   ],
-  "_scoring_prompt": "CANDIDATE: Shashwat Mahajan\nSTATUS: Final year B.Tech student, interning as Generative AI Engineer\nEDUCATION: B.Tech in Computer Science Engineering in Computer Science Engineering from Yeshwantrao Chavan College of Engineering, Nagpur\nGRADUATION: 2027 batch | CGPA: 8.00 / 10\nEXPERIENCE LEVEL: fresher (max 2 years)\n\nTECHNICAL SKILLS:\nPython, Java, JavaScript, LLMs, RAG, LangChain, LangGraph, CrewAI, AWS Bedrock, AWS Bedrock AgentCore, AgentCore Memory, Prompt Engineering, RAGAS, HuggingFace, Vector Embeddings, ChromaDB, XGBoost, FastAPI, Docker, GitHub Actions, AWS S3, Node.js, PostgreSQL, MongoDB, REST APIs, WebSockets, AWS (Bedrock, AgentCore, S3), Docker, GitHub Actions, CI/CD, PostgreSQL, MongoDB, SQL, React.js, Node.js, SMOTE, BeautifulSoup, Brevo SMTP, Groq API, Ollama\n\nCOMPETITIVE PROGRAMMING:\nLeetCode: 1538 rating, 400+ problems solved\nCodeChef: 2-Star Coder\n\n\nKEY PROJECTS:\n- JobIntel Agent: A multi-agent CrewAI pipeline for job intelligence, sourcing jobs across multiple platforms and ranking results by priority. Stack: Python, CrewAI, LangChain, Playwright, SendGrid, LinkedIn/Indeed/Naukri APIs, Vector Embeddings. Intent-based job matching using semantic vector embeddings; Automated end-to-end intelligence delivery via SendGrid email report\n- Financial Analyst RAG System: A production RAG pipeline for real-time multi-company financial analysis, applying the RAGAS evaluation framework to benchmark retrieval faithfulness and answer relevance. Stack: Python, LangChain, ChromaDB, HuggingFace, RAGAS, AWS S3, GitHub Actions. Engineered HuggingFace query-expansion for cross-company comparison accuracy; Implemented LLM output guardrails to constrain responses to grounded, cited content\n- Credit Risk Assessment System: A full-stack ML system for credit risk assessment, investigating severe class imbalance in a 10,000-record credit dataset using SMOTE oversampling and training an XGBoost classifier. Stack: React.js, FastAPI, XGBoost, Docker, GitHub Actions, SMOTE. Trained XGBoost classifier achieving 88% accuracy; Architected full inference pipeline containerised with Docker and CI/CD via GitHub Actions\n- AWS Bedrock AgentCore Agent: A stateful AI agent using AWS Bedrock AgentCore and LangGraph, built and deployed on AWS infrastructure. Stack: Python, LangGraph, AWS Bedrock, AWS Bedrock AgentCore, AgentCore Memory, Docker, FastAPI, XGBoost, GitHub Actions, SMOTE. Designed stateful agent orchestration workflows with long-term memory management and contextual reasoning; Containerized runtimes with Docker and deployed cloud-native agent services on AWS infrastructure\n\nWORK EXPERIENCE:\n- Generative AI Engineer Intern at Technical Hub (Jan 2026 \u2013 Present): Designed and shipped LangChain-based RAG pipelines serving live end users, optimised vector retrieval, and applied systematic prompt evaluation and failure analysis to reduce hallucination rates.\n\nACHIEVEMENTS: LeetCode Rating 1538; CodeChef 2-Star Coder; Machine Learning Specialization \u2014 Codebasics.io; Full Stack Web Development (MERN Stack)\nHACKATHONS: DevOnboard \u2014 AI Repository Intelligence Platform (Individual); Smart Attendance System (Team Lead, 6-Member Team); SITNOVATE \u2014 Real-Time Chat Engine (Individual)\nPUBLICATIONS: \n\nTARGET ROLES (priority order, derived from resume evidence): Generative AI Engineer, LLM Engineer, Backend Engineer, Software Engineer, Full Stack Developer, Data Scientist, ML Engineer\nTARGET COMPANIES: no explicit preference \u2014 any reputable tech company\nPREFERRED LOCATIONS: Nagpur, Remote India\n\nROLE TYPE EXCLUSIONS (this candidate wants HANDS-ON ENGINEERING work, NOT these):\nAI content writing, prompt engineering for content/marketing, AI marketing/copywriting roles, non-technical AI trainer roles, data annotation without engineering component\n\nHARD VETOES (auto-disqualify, each tied to resume evidence):\n- IT services/outsourcing companies without AI/ML title (evidence: The candidate's profile is clearly AI/ML/product-engineering focused, with experience in Generative AI, LLMs, and ML.)\n- Roles requiring 3+ years of experience (evidence: The candidate is a final year B.Tech student and a fresher.)"
+  "_scoring_prompt": "CANDIDATE: Rushabh Thakurdware\nSTATUS: Final year B.Tech student\nEDUCATION: B-Tech in Computer Science And Engineering from Yeshwantrao Chavan College of Engineering\nGRADUATION: 2027 batch | CGPA: 8.15\nEXPERIENCE LEVEL: fresher (max 0 years)\n\nTECHNICAL SKILLS:\nJava, C, C++, Python, Node js, Express js, Spring Boot, MongoDB, React js, Html, CSS, JavaScript, ABAP, Rust, GSAP, Servlet, SAP Erp Software(MM Module)\n\nCOMPETITIVE PROGRAMMING:\nLeetCode:  rating,  problems solved\nCodeChef: \n\n\nKEY PROJECTS:\n- Air Quality Index: A web app that shows real-time air quality data for any city with color-coded indicators based on AQI levels. Stack: React js, Html, CSS, JavaScript, GitHub, Netlify. auto-suggest search; dark mode toggle; loading spinner; mobile-responsive interface\n- Smart QR Based Attendance System: A full-stack web application to automate attendance tracking using dynamic QR codes. Stack: React, Tailwind, MongoDB. secure user authentication; role-based access; real-time QR code generation and scanning\n\nWORK EXPERIENCE:\n- Intern at Excel Controlinkage PVT LTP (06/25 - 07/25): Gained hands-on experience in SAP MM (Materials Management) and ABAP, understanding the core architecture and data flow of SAP ERP systems.\n\nACHIEVEMENTS: Runner up in SPVT.Palloti Hackthon; Runner Up in College University Cricket Tournament\nHACKATHONS: SPVT.Palloti Hackthon (Runner up)\nPUBLICATIONS: \n\nTARGET ROLES (priority order, derived from resume evidence): Software Engineer, Full Stack Developer, Backend Engineer, Frontend Developer\nTARGET COMPANIES: no explicit preference \u2014 any reputable tech company\nPREFERRED LOCATIONS: Nagpur, Remote India\n\nROLE TYPE EXCLUSIONS (this candidate wants HANDS-ON ENGINEERING work, NOT these):\nAI content writing, prompt engineering for content/marketing, AI marketing/copywriting roles, non-technical AI trainer roles, data annotation without engineering component\n\nHARD VETOES (auto-disqualify, each tied to resume evidence):\n- IT services/outsourcing companies without AI/ML title (evidence: Aspiring Software Engineer with hands-on experience in full-stack web development and Java)"
 }

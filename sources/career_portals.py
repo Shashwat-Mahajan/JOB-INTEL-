@@ -2,21 +2,28 @@
 sources/career_portals.py
 Profile-anchored — all keyword filtering derived strictly from profile.json.
 
+CHANGES (profile-driven pass):
+  - _PROFILE, _STRONG_KW, _WEAK_KW are no longer module-level singletons.
+    Each public fetch_*() function calls _load_profile() fresh so that a
+    newly written profile.json (after resume upload) is always picked up
+    when main.py runs as a subprocess.
+  - fetch_wellfound: role_slugs derived from profile target_roles instead
+    of a hardcoded AI/ML-only list.
+  - fetch_internshala: removed hardcoded AI/ML extra searches; uses only
+    profile target_roles.
+  - fetch_amazon: removed 3 hardcoded extra queries (SDE, ML, Applied
+    Scientist) that were appended for every user regardless of profile.
+  - fetch_microsoft: removed 3 hardcoded extra intern queries.
+  - All other fetchers unchanged — they already used _PROFILE correctly.
+
 API Status (June 2026):
   SmartRecruiters  → Swiggy ✅  Meesho ✅  Razorpay ✅  Atlassian ✅
   Greenhouse       → PhonePe ✅  Flipkart ✅  Walmart ✅  Adobe ✅
                      Freshworks ✅  BrowserStack ✅  Postman ✅
                      Chargebee ✅  Darwinbox ✅
-                     FIX (June 2026): early-return [] on empty job_list was
-                     stopping fallback URL patterns from being tried. Now only
-                     exits early when ALL patterns are exhausted or a pattern
-                     returns a genuinely non-empty board (confirmed open).
   Lever            → Zomato ✅  CRED ✅  Groww ✅  Hasura ✅
                      Zepto ✅  CleverTap ✅
-  Amazon           → FIX (June 2026): country[]=IND param is ignored by
-                     Amazon's API for several query types, allowing US/global
-                     jobs to slip through. Added _is_india_or_remote() post-
-                     fetch filter. Also added remote=true fallback queries.
+  Amazon           → country[]=IND unreliable; _is_india_or_remote() post-filter applied.
   Microsoft        → India jobs ✅
   Google           → Blocks bots ⚠  (returns 0, kept for future)
   Naukri direct    → ✅
@@ -37,7 +44,7 @@ from pathlib import Path
 
 log = logging.getLogger(__name__)
 
-# ── Load profile once ─────────────────────────────────────────────────────────
+# ── Load profile ──────────────────────────────────────────────────────────────
 
 _PROFILE_PATH = Path(__file__).parent.parent / "config" / "profile.json"
 
@@ -49,9 +56,6 @@ def _load_profile() -> dict:
     except Exception:
         pass
     return {}
-
-
-_PROFILE = _load_profile()
 
 
 # ── Build keyword set strictly from profile ───────────────────────────────────
@@ -116,17 +120,19 @@ def _build_keywords_from_profile(profile: dict) -> tuple[list, list]:
     return _clean(strong), _clean(weak)
 
 
-_STRONG_KW, _WEAK_KW = _build_keywords_from_profile(_PROFILE)
-
-log.debug(f"career_portals strong keywords ({len(_STRONG_KW)}): {_STRONG_KW[:8]}...")
-log.debug(f"career_portals weak keywords ({len(_WEAK_KW)}): {_WEAK_KW[:8]}...")
+def _get_keywords() -> tuple[list, list]:
+    """Fresh keyword build on every call — always reflects current profile.json."""
+    return _build_keywords_from_profile(_load_profile())
 
 
 def _is_relevant(title: str, desc: str = "") -> bool:
+    profile    = _load_profile()
+    strong_kw, weak_kw = _build_keywords_from_profile(profile)
+    exclusions = profile.get("role_type_exclusions", [])
+
     title_l = title.lower()
     desc_l  = desc.lower()
 
-    exclusions = _PROFILE.get("role_type_exclusions", [])
     for ex in exclusions:
         if ex.lower() in title_l:
             return False
@@ -138,11 +144,11 @@ def _is_relevant(title: str, desc: str = "") -> bool:
     if is_senior and not is_entry:
         return False
 
-    if any(kw in title_l for kw in _STRONG_KW):
+    if any(kw in title_l for kw in strong_kw):
         return True
 
-    title_has_weak  = any(kw in title_l for kw in _WEAK_KW)
-    desc_has_strong = any(kw in desc_l  for kw in _STRONG_KW)
+    title_has_weak  = any(kw in title_l for kw in weak_kw)
+    desc_has_strong = any(kw in desc_l  for kw in strong_kw)
     if title_has_weak and desc_has_strong:
         return True
 
@@ -183,10 +189,6 @@ def _get(url: str, timeout: int = 20, extra_headers: dict = None,
 
 
 # ── Amazon location helper ────────────────────────────────────────────────────
-#
-# FIX: Amazon's country[]=IND param is unreliable — several query types
-# (intern searches, specific role names) ignore it and return global jobs.
-# This post-fetch filter is the only reliable gate.
 
 _INDIA_CITIES = {
     "india", "bengaluru", "bangalore", "hyderabad", "pune", "mumbai",
@@ -196,7 +198,6 @@ _INDIA_CITIES = {
 
 
 def _is_india_or_remote(location: str) -> bool:
-    """Return True only for India-based or explicitly remote jobs."""
     if not location:
         return False
     loc_l = location.lower()
@@ -240,10 +241,8 @@ def _fetch_smartrecruiters(company: str, slug_variants: list[str]) -> list:
         return []
 
     if confirmed_total == 0:
-        log.info(f"  SmartRecruiters/{confirmed_slug}: totalFound=0 — company has no open roles right now")
+        log.info(f"  SmartRecruiters/{confirmed_slug}: totalFound=0 — no open roles right now")
         return []
-
-    log.debug(f"  SmartRecruiters/{confirmed_slug}: {confirmed_total} total postings — fetching all pages")
 
     jobs = []
     offset, limit = 0, 100
@@ -255,7 +254,6 @@ def _fetch_smartrecruiters(company: str, slug_variants: list[str]) -> list:
         )
         r = _get(url, timeout=15)
         if not r:
-            log.warning(f"  SmartRecruiters/{confirmed_slug}: lost connection mid-pagination at offset={offset}")
             break
         try:
             data = r.json()
@@ -265,8 +263,6 @@ def _fetch_smartrecruiters(company: str, slug_variants: list[str]) -> list:
         postings = data.get("content", [])
         if not postings:
             break
-
-        log.debug(f"  SmartRecruiters/{confirmed_slug}: page offset={offset}, got {len(postings)} postings")
 
         for p in postings:
             title = p.get("name", "")
@@ -343,8 +339,9 @@ def fetch_razorpay() -> list:
 
 
 def fetch_atlassian() -> list:
+    profile = _load_profile()
     raw  = _fetch_smartrecruiters("Atlassian", ["atlassian", "atlassian-1", "atlassian-network-services"])
-    pref = [w.lower() for w in _PROFILE.get("location_preferences", ["india", "remote"])]
+    pref = [w.lower() for w in profile.get("location_preferences", ["india", "remote"])]
     jobs = [
         j for j in raw
         if any(p in j["location"].lower() for p in pref)
@@ -356,20 +353,6 @@ def fetch_atlassian() -> list:
 
 
 # ── Greenhouse ────────────────────────────────────────────────────────────────
-#
-# FIX (June 2026): The previous logic had:
-#
-#     if not job_list:
-#         return []   # ← BUG
-#
-# When boards-api.greenhouse.io returns HTTP 200 with {"jobs": []} (which
-# happens when the board exists but blocks anonymous access), the function
-# would exit immediately without trying the two fallback URL patterns.
-# This caused ALL 7 Greenhouse boards to silently return 0 jobs every run.
-#
-# Fix: track whether ANY pattern returned a confirmed-valid non-empty board.
-# Only short-circuit if we've confirmed the board is genuinely empty (i.e.
-# multiple patterns agree on 0). Otherwise exhaust all patterns first.
 
 def _fetch_greenhouse(company: str, board: str) -> list:
     url_patterns = [
@@ -378,8 +361,8 @@ def _fetch_greenhouse(company: str, board: str) -> list:
         f"https://boards-api.greenhouse.io/v1/boards/{board}/jobs",
     ]
 
-    empty_count  = 0   # patterns that returned valid JSON but 0 jobs
-    tried_count  = 0   # patterns that returned a parseable response
+    empty_count  = 0
+    tried_count  = 0
 
     for url in url_patterns:
         r = _get(url)
@@ -389,27 +372,19 @@ def _fetch_greenhouse(company: str, board: str) -> list:
         try:
             data = r.json()
         except Exception:
-            log.debug(f"  Greenhouse/{board}: non-JSON response from {url[:60]}")
             continue
 
         job_list = data.get("jobs", data.get("postings", []))
         if not isinstance(job_list, list):
-            log.debug(f"  Greenhouse/{board}: unexpected shape at {url[:60]}")
             continue
 
         tried_count += 1
 
         if not job_list:
-            # FIX: don't return here — this pattern may be blocked/empty
-            # while another pattern still works. Count it and keep trying.
             empty_count += 1
-            log.debug(
-                f"  Greenhouse/{board}: pattern returned 0 jobs "
-                f"({url[:60]}) — trying next pattern"
-            )
+            log.debug(f"  Greenhouse/{board}: pattern returned 0 jobs ({url[:60]}) — trying next")
             continue
 
-        # Got actual jobs — parse and return
         jobs = []
         for j in job_list:
             title   = j.get("title", "")
@@ -431,20 +406,13 @@ def _fetch_greenhouse(company: str, board: str) -> list:
                                or date.today().isoformat(),
                 "source":      f"{company} Careers (Greenhouse)",
             })
-        log.debug(f"  Greenhouse/{board}: {len(jobs)} relevant from {len(job_list)} total (via {url[:50]})")
+        log.debug(f"  Greenhouse/{board}: {len(jobs)} relevant from {len(job_list)} total")
         return jobs
 
-    # All patterns exhausted
     if tried_count > 0 and empty_count == tried_count:
-        # Every responding pattern agreed: board exists but has 0 openings
         log.info(f"  Greenhouse/{board}: 0 jobs — board exists but no openings right now")
     else:
-        # No pattern got a parseable response — likely blocked or moved
-        log.warning(
-            f"  Greenhouse/{board}: all URL patterns returned no data. "
-            f"Board may have moved ATS or is blocking anonymous requests. "
-            f"Verify at: https://boards.greenhouse.io/{board}"
-        )
+        log.warning(f"  Greenhouse/{board}: all URL patterns returned no data.")
     return []
 
 
@@ -501,7 +469,6 @@ def _fetch_lever(company: str, slug: str) -> list:
     url  = f"https://api.lever.co/v0/postings/{slug}?mode=json&limit=100"
     r    = _get(url, timeout=15)
     if not r:
-        log.debug(f"  Lever/{slug}: no response — slug may be wrong or blocked")
         return jobs
     try:
         raw = r.json()
@@ -510,11 +477,6 @@ def _fetch_lever(company: str, slug: str) -> list:
         elif isinstance(raw, dict):
             data = raw.get("postings", raw.get("data", []))
         else:
-            log.warning(f"  Lever/{slug}: unexpected response type {type(raw)}")
-            return jobs
-
-        if not data:
-            log.debug(f"  Lever/{slug}: 0 postings returned")
             return jobs
 
         for j in data:
@@ -575,40 +537,20 @@ def fetch_clevertap() -> list:
 
 
 # ── Amazon ────────────────────────────────────────────────────────────────────
-#
-# FIX (June 2026): Amazon's country[]=IND param is ignored for intern
-# searches and several role-specific queries, causing US/global jobs
-# (Beijing, Shenzhen, Seattle, etc.) to pass through — exactly what the
-# log showed (85 raw results, many clearly non-India).
-#
-# Two-part fix:
-#   1. Keep country[]=IND in the URL (still helps narrow server-side).
-#   2. Add _is_india_or_remote() post-fetch filter as the reliable gate.
-#      This checks the "location" field of every returned job against
-#      a set of India city tokens + "remote".
-#
-# Also added remote=true queries alongside India queries so genuine
-# remote roles aren't dropped by the location filter.
 
 def fetch_amazon() -> list:
+    profile = _load_profile()
     jobs  = []
     seen  = set()
 
-    # Each tuple: (query_string, is_intern, include_remote_variant)
+    # CHANGED: only profile target_roles — no hardcoded extra queries
     queries = []
-    for role in _PROFILE.get("target_roles", ["Machine Learning Engineer"]):
+    for role in profile.get("target_roles", ["Software Engineer"]):
         queries.append((role, False))
         queries.append((role + " Intern", True))
-    queries += [
-        ("Software Development Engineer", False),
-        ("Software Engineer Intern",      True),
-        ("Machine Learning",              False),
-        ("Applied Scientist Intern",      True),
-    ]
 
     try:
         for q, is_intern in queries:
-            # Query 1: India-specific
             for loc_param in ["&country%5B%5D=IND", "&remote=true"]:
                 url = (
                     "https://www.amazon.jobs/en/search.json"
@@ -632,12 +574,10 @@ def fetch_amazon() -> list:
 
                 raw_jobs = payload.get("jobs", [])
                 before   = len(raw_jobs)
-
-                # FIX: post-fetch location filter — the only reliable gate
                 raw_jobs = [j for j in raw_jobs if _is_india_or_remote(j.get("location", ""))]
                 dropped  = before - len(raw_jobs)
                 if dropped:
-                    log.debug(f"  Amazon: dropped {dropped} non-India/remote jobs for query '{q}'")
+                    log.debug(f"  Amazon: dropped {dropped} non-India/remote jobs for '{q}'")
 
                 for j in raw_jobs:
                     title = j.get("title", "")
@@ -670,9 +610,10 @@ def fetch_amazon() -> list:
 # ── Google ────────────────────────────────────────────────────────────────────
 
 def fetch_google() -> list:
+    profile = _load_profile()
     jobs = []
     seen = set()
-    queries = list(_PROFILE.get("target_roles", []))
+    queries = list(profile.get("target_roles", []))
 
     try:
         for q in queries:
@@ -725,13 +666,15 @@ def fetch_google() -> list:
 # ── Microsoft ─────────────────────────────────────────────────────────────────
 
 def fetch_microsoft() -> list:
+    profile = _load_profile()
     jobs  = []
     seen  = set()
+
+    # CHANGED: only profile target_roles — no hardcoded extra queries
     queries = []
-    for role in _PROFILE.get("target_roles", []):
+    for role in profile.get("target_roles", ["Software Engineer"]):
         queries.append(role)
         queries.append(role + " Intern")
-    queries += ["Software Engineering Intern", "Data Science Intern", "AI Research Intern"]
 
     ms_headers = {
         **HEADERS,
@@ -798,18 +741,17 @@ def fetch_microsoft() -> list:
 # ── Wellfound ─────────────────────────────────────────────────────────────────
 
 def fetch_wellfound() -> list:
+    profile = _load_profile()
     jobs = []
     seen = set()
 
-    role_slugs = [
-        "machine-learning-engineer",
-        "software-engineer",
-        "backend-engineer",
-        "data-scientist",
-        "ai-engineer",
-        "full-stack-engineer",
-        "nlp-engineer",
-    ]
+    # CHANGED: derive slugs from profile target_roles instead of hardcoded list
+    target_roles = profile.get("target_roles", ["software engineer"])
+    role_slugs = list(dict.fromkeys(
+        r.lower().strip().replace(" ", "-") for r in target_roles
+    ))
+    if not role_slugs:
+        role_slugs = ["software-engineer"]
 
     try:
         for slug in role_slugs:
@@ -872,17 +814,12 @@ def fetch_wellfound() -> list:
 # ── Internshala ───────────────────────────────────────────────────────────────
 
 def fetch_internshala() -> list:
+    profile = _load_profile()
     jobs = []
     seen = set()
 
-    searches = list(_PROFILE.get("target_roles", []))
-    for extra in [
-        "generative-ai", "machine-learning", "python-developer",
-        "data-science", "backend-developer", "artificial-intelligence",
-        "software-development", "full-stack-development",
-    ]:
-        if extra not in [s.lower().replace(" ", "-") for s in searches]:
-            searches.append(extra)
+    # CHANGED: only profile target_roles, no hardcoded AI/ML extras
+    searches = list(profile.get("target_roles", ["software development"]))
 
     internshala_headers = {
         **HEADERS,
@@ -909,19 +846,11 @@ def fetch_internshala() -> list:
                 except Exception:
                     continue
 
-                meta_key = (
-                    "internships_meta" if endpoint_type == "internships"
-                    else "jobs_meta"
-                )
-                alt_meta_key = (
-                    "internshipsMeta" if endpoint_type == "internships"
-                    else "jobsMeta"
-                )
+                meta_key     = "internships_meta" if endpoint_type == "internships" else "jobs_meta"
+                alt_meta_key = "internshipsMeta"  if endpoint_type == "internships" else "jobsMeta"
                 items = body.get(meta_key) or body.get(alt_meta_key) or {}
 
                 if not items:
-                    log.debug(f"  Internshala/{endpoint_type}/{slug}: empty meta — "
-                              f"keys={list(body.keys())[:5]}")
                     continue
 
                 for item_id, meta in items.items():
@@ -966,6 +895,7 @@ def fetch_internshala() -> list:
 # ── YCombinator / Work at a Startup ──────────────────────────────────────────
 
 def fetch_ycombinator() -> list:
+    profile  = _load_profile()
     jobs = []
     seen = set()
 
@@ -976,7 +906,7 @@ def fetch_ycombinator() -> list:
     }
 
     try:
-        for role in _PROFILE.get("target_roles", ["machine learning"]):
+        for role in profile.get("target_roles", ["software engineer"]):
             url = (
                 "https://www.workatastartup.com/jobs/api"
                 f"?q={requests.utils.quote(role)}&remote=true&india=true"
@@ -1038,18 +968,14 @@ def fetch_ycombinator() -> list:
 # ── Naukri direct ─────────────────────────────────────────────────────────────
 
 def fetch_naukri_direct() -> list:
+    profile = _load_profile()
     jobs = []
     seen = set()
 
     queries = []
-    for role in _PROFILE.get("target_roles", []):
+    for role in profile.get("target_roles", []):
         queries.append(f"{role} fresher")
         queries.append(role)
-    queries += [
-        "generative ai fresher", "llm engineer fresher",
-        "machine learning fresher", "software developer fresher",
-        "python developer fresher",
-    ]
 
     naukri_headers = {
         "User-Agent":             HEADERS["User-Agent"],
@@ -1073,7 +999,6 @@ def fetch_naukri_direct() -> list:
             )
             r = requests.get(url, headers=naukri_headers, timeout=15)
             if r.status_code not in (200, 201):
-                log.debug(f"  Naukri direct: HTTP {r.status_code} for query '{q}'")
                 continue
             try:
                 for j in r.json().get("jobDetails", []):
@@ -1178,12 +1103,10 @@ def fetch_jpmorgan() -> list:
 def fetch_all_career_portals() -> list:
     all_jobs = []
     fetchers = [
-        # SmartRecruiters
         ("Swiggy",        fetch_swiggy),
         ("Meesho",        fetch_meesho),
         ("Atlassian",     fetch_atlassian),
         ("Razorpay",      fetch_razorpay),
-        # Greenhouse
         ("PhonePe",       fetch_phonepe),
         ("Flipkart",      fetch_flipkart),
         ("Walmart",       fetch_walmart),
@@ -1193,23 +1116,19 @@ def fetch_all_career_portals() -> list:
         ("Postman",       fetch_postman),
         ("Chargebee",     fetch_chargebee),
         ("Darwinbox",     fetch_darwinbox),
-        # Lever
         ("Zomato",        fetch_zomato),
         ("CRED",          fetch_cred),
         ("Groww",         fetch_groww),
         ("Hasura",        fetch_hasura),
         ("Zepto",         fetch_zepto),
         ("CleverTap",     fetch_clevertap),
-        # Direct APIs
         ("Amazon",        fetch_amazon),
         ("Google",        fetch_google),
         ("Microsoft",     fetch_microsoft),
-        # Indian boards
         ("Wellfound",     fetch_wellfound),
         ("Internshala",   fetch_internshala),
         ("YCombinator",   fetch_ycombinator),
         ("Naukri direct", fetch_naukri_direct),
-        # Enterprise
         ("Oracle",        fetch_oracle),
         ("JPMorgan",      fetch_jpmorgan),
     ]

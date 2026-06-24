@@ -1,25 +1,12 @@
 """
 sources/linkedin.py
-Fetches LinkedIn jobs via the public guest API. Anonymous requests only —
-deliberately does NOT use your real LinkedIn session/cookies. Anonymous
-scraping that gets rate-limited just means fewer results that run; using
-your actual logged-in session for automation risks LinkedIn flagging your
-real account, which is a much worse outcome than a quiet day of fewer jobs.
+Fetches LinkedIn jobs via the public guest API. Anonymous requests only.
 
---- CHANGED in this pass ---
-  - Keywords are profile-driven (via utils.get_search_keywords, passed in
-    as `keywords`), with a small hardcoded fallback only if none supplied.
-  - Uses sources/base.py's resilient_get/new_session for retries/backoff.
-  - Explicit login-wall detection: if LinkedIn redirects to an authwall/
-    login page, that keyword's fetch stops immediately instead of
-    retrying — no amount of retrying fixes a wall, and retrying just adds
-    more flagged requests.
-  - Added jitter (randomized delays) between requests/keywords — reduces
-    how mechanically uniform the request pattern looks, without crossing
-    into authenticated/account-risk territory.
-  - Per-keyword fresh session (cookie/connection state doesn't carry
-    across keywords) to keep each search looking like an independent,
-    smaller burst rather than one long continuous session.
+CHANGES (profile-driven pass):
+  - _FALLBACK_KEYWORDS changed from AI/ML-specific to generic so any
+    background gets reasonable fallback results if profile has no
+    target_roles.
+  - Everything else unchanged.
 """
 
 import logging
@@ -44,12 +31,12 @@ HEADERS = {
     "Accept-Language": "en-US,en;q=0.9",
 }
 
+# CHANGED: generic fallback — not AI/ML specific
 _FALLBACK_KEYWORDS = [
-    "generative AI engineer",
-    "LLM engineer",
-    "ML engineer",
-    "AI engineer intern",
-    "machine learning engineer fresher",
+    "software engineer fresher",
+    "developer intern india",
+    "engineer fresher india",
+    "software developer entry level",
 ]
 
 _VIEW_RE               = re.compile(r"/jobs/view/(\d+)")
@@ -169,9 +156,9 @@ def _parse_one_card(card, loc_fallback: str) -> dict | None:
 
 def fetch_linkedin(keywords: list, location: str = "India") -> list:
     """
-    Fetch LinkedIn jobs anonymously via the public guest API, using
-    profile-derived keywords. No session cookies, no authentication —
-    deliberately avoids tying scraping activity to a real account.
+    Fetch LinkedIn jobs anonymously via the public guest API.
+    Keywords are profile-derived (passed in from crew.py via get_search_keywords).
+    Falls back to generic keywords only if none supplied.
     """
     search_terms = keywords if keywords else _FALLBACK_KEYWORDS
 
@@ -181,7 +168,7 @@ def fetch_linkedin(keywords: list, location: str = "India") -> list:
     dropped_invalid    = 0
 
     for kw in search_terms:
-        session = new_session(HEADERS)   # fresh session per keyword
+        session = new_session(HEADERS)
         detail_fetches = 0
 
         for start in [0, 25]:
@@ -202,12 +189,9 @@ def fetch_linkedin(keywords: list, location: str = "India") -> list:
                 time.sleep(5)
                 continue
 
-            # Login wall / authwall redirect — stop this keyword, retrying won't help
             if "authwall" in r.url or "/login" in r.url:
                 log.warning(
-                    f"LinkedIn: hit login/auth wall for '{kw}' — stopping this keyword. "
-                    f"Anonymous guest access is being challenged; this is expected to "
-                    f"happen intermittently and resolves on its own over time."
+                    f"LinkedIn: hit login/auth wall for '{kw}' — stopping this keyword."
                 )
                 break
 
