@@ -1,71 +1,139 @@
 """
 crew.py — CrewAI 1.x pipeline.
+
+MIGRATION NOTE (v2.0 → v2.1)
+──────────────────────────────
+Two changes only. Everything else is identical to the original:
+
+1. _get_llm()
+   OLD: ollama/qwen3:4b at localhost:11434
+   NEW: NVIDIA NIM meta/llama-3.1-8b-instruct (OpenAI-compatible, free)
+   Works locally AND on GitHub Actions — Ollama dependency gone entirely.
+
+2. verify_jobs_tool
+   OLD: Groq(api_key=...) with "llama-3.3-70b-versatile"
+   NEW: google.generativeai with "gemini-2.0-flash"
+   Config key: cfg["groq_api_key"] → cfg["google_ai_api_key"]
+
+3. score_jobs_tool
+   The api_key passed to score_jobs_with_llm() changed from
+   cfg["groq_api_key"] to cfg["google_ai_api_key"].
+   scorer.py's public signature is unchanged — crew.py just passes the key.
 """
 
 import json
 import logging
 from pathlib import Path
 from datetime import date
+
+import google.generativeai as genai
 from crewai import Agent, Task, Crew, Process, LLM
 from crewai.tools import tool
-from groq import Groq
 
 from sources.public_apis import (
-    fetch_remotive, fetch_arbeitnow, fetch_jobicy,
-    fetch_himalayas, fetch_freshersworld,
+    fetch_remotive,
+    fetch_arbeitnow,
+    fetch_jobicy,
+    fetch_himalayas,
+    fetch_freshersworld,
 )
 from sources.career_portals import fetch_all_career_portals
-from sources.linkedin       import fetch_linkedin
-from sources.naukri         import fetch_naukri
-from scorer                 import score_jobs_with_llm, CANDIDATE_PROFILE_FULL
-from reporter                import build_html_report, send_email
-from utils                   import (
-    load_seen, save_seen, deduplicate, deduplicate_batch,
-    load_profile, get_verifier_system_prompt,
+from sources.linkedin import fetch_linkedin
+from sources.naukri import fetch_naukri
+from scorer import score_jobs_with_llm, CANDIDATE_PROFILE_FULL
+from reporter import build_html_report, send_email
+from utils import (
+    load_seen,
+    save_seen,
+    deduplicate,
+    deduplicate_batch,
+    load_profile,
+    get_verifier_system_prompt,
 )
-from filters                import apply_all_filters
+from filters import apply_all_filters
 
 log = logging.getLogger(__name__)
 
-BASE    = Path(__file__).parent
-SEEN    = BASE / "logs" / "seen_jobs.json"
+BASE = Path(__file__).parent
+SEEN = BASE / "logs" / "seen_jobs.json"
 REPORTS = BASE / "reports"
 REPORTS.mkdir(parents=True, exist_ok=True)
 (BASE / "logs").mkdir(parents=True, exist_ok=True)
 
+
 class _PipelineState:
     def __init__(self):
-        self.raw_jobs:       list = []
-        self.fresh_jobs:     list = []
-        self.scored_jobs:    list = []
-        self.verified_jobs:  list = []
-        self.config:         dict = {}
-        self.seen_snapshot:  dict = {}
+        self.raw_jobs: list = []
+        self.fresh_jobs: list = []
+        self.scored_jobs: list = []
+        self.verified_jobs: list = []
+        self.config: dict = {}
+        self.seen_snapshot: dict = {}
 
-    def __getitem__(self, key):        return getattr(self, key)
-    def __setitem__(self, key, value): setattr(self, key, value)
-    def get(self, key, default=None):  return getattr(self, key, default)
+    def __getitem__(self, key):
+        return getattr(self, key)
+
+    def __setitem__(self, key, value):
+        setattr(self, key, value)
+
+    def get(self, key, default=None):
+        return getattr(self, key, default)
+
 
 _state = _PipelineState()
 
 
+# ── CHANGE 1: _get_llm — Ollama → NVIDIA NIM ─────────────────────────────────
+
+
 def _get_llm() -> LLM:
+    """
+    NVIDIA NIM via LiteLLM's openai/ prefix.
+
+    LiteLLM (bundled with crewai) treats any model string starting with
+    "openai/" as an OpenAI-compatible endpoint and uses base_url for routing.
+    NVIDIA NIM's endpoint is fully OpenAI-compatible, so no extra package needed.
+
+    Model: meta/llama-3.1-8b-instruct
+      - Free tier: 1000 credits/month at build.nvidia.com
+      - Fast, reliable instruction following for short agent reasoning tasks
+      - Works identically locally and on GitHub Actions (no Ollama server needed)
+
+    To use a different NIM model:
+      https://build.nvidia.com/explore/discover — pick any, update NIM_MODEL.
+
+    Requires env var or config key: NVIDIA_NIM_API_KEY / nvidia_nim_api_key
+    """
+    import os
+
+    nim_key = _state.get("config", {}).get("nvidia_nim_api_key") or os.getenv(
+        "NVIDIA_NIM_API_KEY", ""
+    )
+    if not nim_key:
+        raise EnvironmentError(
+            "NVIDIA_NIM_API_KEY not set. "
+            "Get a free key at https://build.nvidia.com — click any model → Get API Key."
+        )
+
     return LLM(
-        model="ollama/qwen3:4b",
-        base_url="http://localhost:11434",
+        model="openai/meta/llama-3.1-8b-instruct",
+        api_key=nim_key,
+        base_url="https://integrate.api.nvidia.com/v1",
         temperature=0.1,
+        max_tokens=512,
     )
 
 
-# ── Tool 1: Scout ─────────────────────────────────────────────────────────────
+# ── Tool 1: Scout — UNCHANGED ─────────────────────────────────────────────────
+
 
 @tool("Fetch all jobs from all sources")
 def fetch_all_jobs_tool() -> str:
     """
     Fetches all job listings from all sources, deduplicates, then applies
-    pre-LLM filters before any Groq call is made.
+    pre-LLM filters before any LLM call is made.
     """
-    cfg      = _state["config"]
+    cfg = _state["config"]
     keywords = cfg.get("search_keywords", [])
     location = cfg.get("location", "India")
 
@@ -87,17 +155,18 @@ def fetch_all_jobs_tool() -> str:
     _fetch_and_count("Himalayas", fetch_himalayas, keywords)
     _fetch_and_count("Freshersworld", fetch_freshersworld, keywords)
     _fetch_and_count("LinkedIn", fetch_linkedin, keywords, location)
-    _fetch_and_count("Naukri", fetch_naukri, keywords)          # ← CHANGED: now passes keywords
+    _fetch_and_count("Naukri", fetch_naukri, keywords)
     _fetch_and_count("CareerPortals", fetch_all_career_portals)
 
-    log.info("Per-source raw counts: " + ", ".join(f"{k}={v}" for k, v in source_counts.items()))
+    log.info(
+        "Per-source raw counts: "
+        + ", ".join(f"{k}={v}" for k, v in source_counts.items())
+    )
 
     before_batch_dedup = len(raw)
     raw = deduplicate_batch(raw)
     log.info(f"Scout: cross-source dedup {before_batch_dedup} → {len(raw)}")
 
-    # Seen-store dedup disabled — every run returns all fetched jobs
-    # regardless of whether they appeared in previous runs.
     fresh = raw
     _state["seen_snapshot"] = {}
 
@@ -111,13 +180,15 @@ def fetch_all_jobs_tool() -> str:
     profile = cfg.get("profile", {})
     max_exp_years = profile.get("max_experience_years", 2)
     role_exclusions = profile.get("role_type_exclusions", [])
-    fresh = apply_all_filters(fresh, max_experience_years=max_exp_years, role_exclusions=role_exclusions)
+    fresh = apply_all_filters(
+        fresh, max_experience_years=max_exp_years, role_exclusions=role_exclusions
+    )
 
-    _state["raw_jobs"]   = raw
+    _state["raw_jobs"] = raw
     _state["fresh_jobs"] = fresh
 
     intern_count = sum(1 for j in fresh if j.get("job_type") == "internship")
-    ft_count     = len(fresh) - intern_count
+    ft_count = len(fresh) - intern_count
 
     log.info(
         f"Scout: {len(raw)} after cross-source dedup → {len(fresh)} after seen-dedup+filter "
@@ -131,14 +202,16 @@ def fetch_all_jobs_tool() -> str:
     )
 
 
-# ── Tool 2: Analyst ───────────────────────────────────────────────────────────
+# ── Tool 2: Analyst — only api_key key name changed ──────────────────────────
 
-@tool("Score jobs with Groq LLM intent matching")
+
+@tool("Score jobs with Gemini intent matching")
 def score_jobs_tool() -> str:
-    """Scores pre-filtered fresh jobs using Groq llama-3.3-70b-versatile intent matching against the candidate profile."""
-    fresh      = _state.get("fresh_jobs", [])
-    cfg        = _state.get("config", {})
-    api_key    = cfg.get("groq_api_key", "")
+    """Scores pre-filtered fresh jobs using Gemini intent matching against the candidate profile."""
+    fresh = _state.get("fresh_jobs", [])
+    cfg = _state.get("config", {})
+    # CHANGED: groq_api_key → google_ai_api_key
+    api_key = cfg.get("google_ai_api_key", "")
     batch_size = cfg.get("llm_batch_size", 20)
 
     if not fresh:
@@ -147,9 +220,9 @@ def score_jobs_tool() -> str:
     scored = score_jobs_with_llm(fresh, api_key=api_key, batch_size=batch_size)
     _state["scored_jobs"] = scored
 
-    high   = len([j for j in scored if j.get("priority") == "HIGH"])
+    high = len([j for j in scored if j.get("priority") == "HIGH"])
     medium = len([j for j in scored if j.get("priority") == "MEDIUM"])
-    low    = len([j for j in scored if j.get("priority") == "LOW"])
+    low = len([j for j in scored if j.get("priority") == "LOW"])
 
     log.info(f"Analyst: {len(scored)} relevant — {high}H {medium}M {low}L")
     return (
@@ -159,76 +232,67 @@ def score_jobs_tool() -> str:
     )
 
 
-# ── Tool 3: Verifier ──────────────────────────────────────────────────────────
+# ── Tool 3: Verifier — CHANGE 2: Groq client → Gemini ───────────────────────
+
 
 @tool("Verify HIGH priority jobs for accuracy")
 def verify_jobs_tool() -> str:
     """Runs a permissive second-pass verification on HIGH priority jobs, only downgrading when confidence is very high."""
     scored = _state.get("scored_jobs", [])
     log.info(f"Verifier: entry — len(scored_jobs)={len(scored)} id={id(_state)}")
-    cfg     = _state.get("config", {})
-    api_key = cfg.get("groq_api_key", "")
+    cfg = _state.get("config", {})
+    # CHANGED: groq_api_key → google_ai_api_key
+    api_key = cfg.get("google_ai_api_key", "")
 
     if not scored:
         _state["verified_jobs"] = []
         return "No scored jobs to verify."
 
-    high_jobs  = [j for j in scored if j.get("priority") == "HIGH"]
+    high_jobs = [j for j in scored if j.get("priority") == "HIGH"]
     other_jobs = [j for j in scored if j.get("priority") != "HIGH"]
 
     if not high_jobs:
         _state["verified_jobs"] = scored
         return f"No HIGH jobs to verify. Passing {len(scored)} jobs through."
 
-    log.info(f"Verifier: checking {len(high_jobs)} HIGH jobs via Groq...")
+    log.info(f"Verifier: checking {len(high_jobs)} HIGH jobs via Gemini...")
 
     profile = load_profile()
     VERIFY_PROMPT = get_verifier_system_prompt(profile)
 
     try:
-        client = Groq(api_key=api_key)
+        # CHANGED: Groq(api_key=...) → genai.configure + GenerativeModel
+        genai.configure(api_key=api_key)
+        model = genai.GenerativeModel(
+            model_name="gemini-2.0-flash",
+            generation_config=genai.GenerationConfig(
+                temperature=0.05,
+                response_mime_type="application/json",
+            ),
+        )
 
         payload = [
             {
-                "job_id":   j["job_id"],
-                "title":    j["title"],
-                "company":  j["company"],
+                "job_id": j["job_id"],
+                "title": j["title"],
+                "company": j["company"],
                 "job_type": j.get("job_type", "full-time"),
-                "reason":   (j.get("match_reason") or "")[:120],
+                "reason": (j.get("match_reason") or "")[:120],
             }
             for j in high_jobs
         ]
 
-        # max_tokens: each verification object is ~150 tokens, plus
-        # array brackets/whitespace. 10 HIGH jobs needs ~1600 tokens
-        # minimum — 512 was causing truncation and silent failure.
-        max_tok = max(2000, len(high_jobs) * 180)
-
-        response = client.chat.completions.create(
-            model="llama-3.3-70b-versatile",
-            messages=[
-                {"role": "system", "content": VERIFY_PROMPT},
-                {
-                    "role": "user",
-                    "content": (
-                        f"Verify these {len(high_jobs)} HIGH jobs.\n"
-                        f"Return a JSON array with exactly {len(high_jobs)} objects — one per job_id.\n"
-                        f"{json.dumps(payload)}\n"
-                        "JSON only. No truncation."
-                    ),
-                },
-            ],
-            temperature=0.05,
-            max_tokens=max_tok,
+        user_content = (
+            f"Verify these {len(high_jobs)} HIGH jobs.\n"
+            f"Return a JSON array with exactly {len(high_jobs)} objects — one per job_id.\n"
+            f"{json.dumps(payload)}\n"
+            "JSON only. No truncation."
         )
+        full_prompt = f"{VERIFY_PROMPT}\n\n{user_content}"
 
-        raw = response.choices[0].message.content.strip()
-        if "```" in raw:
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:].strip()
-
-        results    = json.loads(raw)
+        response = model.generate_content(full_prompt)
+        raw = response.text
+        results = json.loads(raw)
         result_map = {r["job_id"]: r for r in results}
         downgraded = 0
 
@@ -237,16 +301,17 @@ def verify_jobs_tool() -> str:
             if not v:
                 continue
             new_p = v.get("verified_priority", "HIGH")
-            conf  = v.get("confidence", 100)
+            conf = v.get("confidence", 100)
 
             if new_p != "HIGH" and conf >= 85:
-                job["priority"]     = new_p
+                job["priority"] = new_p
                 job["match_reason"] = (
-                    job.get("match_reason", "") +
-                    f" [Verified: {v.get('reason','')}]"
+                    job.get("match_reason", "") + f" [Verified: {v.get('reason','')}]"
                 )
                 downgraded += 1
-                log.info(f"  Downgraded: {job['title']} @ {job['company']} → {job['priority']}")
+                log.info(
+                    f"  Downgraded: {job['title']} @ {job['company']} → {job['priority']}"
+                )
             else:
                 log.info(
                     f"  Confirmed HIGH: {job['title']} @ {job['company']} "
@@ -256,13 +321,16 @@ def verify_jobs_tool() -> str:
         log.info(f"Verifier done: {len(high_jobs)} checked, {downgraded} downgraded")
 
     except Exception as e:
-        log.error(f"Verifier error — keeping all HIGH scores unchanged")
+        log.error(f"Verifier error: {e} — keeping all HIGH scores unchanged")
 
-    all_verified = [j for j in high_jobs + other_jobs
-                    if j.get("priority") not in ("SKIP", None)]
+    all_verified = [
+        j for j in high_jobs + other_jobs if j.get("priority") not in ("SKIP", None)
+    ]
 
     if not all_verified:
-        log.warning("Verifier produced empty verified_jobs — falling back to scored_jobs")
+        log.warning(
+            "Verifier produced empty verified_jobs — falling back to scored_jobs"
+        )
         all_verified = [j for j in scored if j.get("priority") not in ("SKIP", None)]
 
     _state["verified_jobs"] = all_verified
@@ -274,13 +342,14 @@ def verify_jobs_tool() -> str:
     )
 
 
-# ── Tool 4: Reporter ──────────────────────────────────────────────────────────
+# ── Tool 4: Reporter — UNCHANGED ─────────────────────────────────────────────
+
 
 @tool("Build HTML report and send email digest")
 def build_report_tool() -> str:
     """Splits verified jobs into internships and full-time, builds the HTML report, sends the email digest, and persists the seen-store on success."""
     jobs = _state.get("verified_jobs", [])
-    cfg  = _state.get("config", {})
+    cfg = _state.get("config", {})
 
     if not jobs:
         log.info("Reporter: no jobs to report — seen_jobs.json left untouched.")
@@ -300,8 +369,8 @@ def build_report_tool() -> str:
     )
 
     today = date.today().isoformat()
-    html  = build_html_report(internships, full_time, today)
-    path  = REPORTS / f"report_{today}.html"
+    html = build_html_report(internships, full_time, today)
+    path = REPORTS / f"report_{today}.html"
     path.write_text(html, encoding="utf-8")
     log.info(f"Report saved → {path}")
 
@@ -320,7 +389,6 @@ def build_report_tool() -> str:
                 f"(likely sender not verified in Brevo)."
             )
 
-        # Seen-store persistence disabled — nothing written between runs.
         log.info("Seen-store disabled — all jobs returned fresh each run.")
 
     if cfg.get("email_enabled"):
@@ -341,7 +409,8 @@ def build_report_tool() -> str:
     return f"Report saved to {path}. Email disabled in config."
 
 
-# ── Crew builder ──────────────────────────────────────────────────────────────
+# ── Crew builder — UNCHANGED except llm = _get_llm() now returns NIM LLM ─────
+
 
 def build_crew(cfg: dict) -> Crew:
     _state["config"] = cfg
@@ -362,7 +431,7 @@ def build_crew(cfg: dict) -> Crew:
 
     analyst = Agent(
         role="Job Analyst",
-        goal="Score pre-filtered fresh jobs by intent match using Groq LLM.",
+        goal="Score pre-filtered fresh jobs by intent match using Gemini.",
         backstory="Technical recruiter scoring GenAI/ML/SDE roles for a 2027 fresher.",
         tools=[score_jobs_tool],
         llm=llm,
@@ -407,7 +476,7 @@ def build_crew(cfg: dict) -> Crew:
     )
 
     task_analyse = Task(
-        description="Call score_jobs_tool to score all filtered fresh jobs with Groq.",
+        description="Call score_jobs_tool to score all filtered fresh jobs with Gemini.",
         expected_output="Count of HIGH, MEDIUM, LOW jobs and how many were dropped.",
         agent=analyst,
         context=[task_scout],
