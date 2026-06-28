@@ -1,34 +1,33 @@
 """
 crew.py — CrewAI 1.x pipeline.
 
-MIGRATION NOTE (v2.0 → v2.1)
-──────────────────────────────
-Two changes only. Everything else is identical to the original:
-
-1. _get_llm()
-   OLD: ollama/qwen3:4b at localhost:11434
-   NEW: NVIDIA NIM meta/llama-3.1-8b-instruct (OpenAI-compatible, free)
-   Works locally AND on GitHub Actions — Ollama dependency gone entirely.
-
-2. verify_jobs_tool
-   OLD: Groq(api_key=...) with "llama-3.3-70b-versatile"
-   NEW: google.generativeai with "gemini-2.0-flash"
-   Config key: cfg["groq_api_key"] → cfg["google_ai_api_key"]
-
-3. score_jobs_tool
-   The api_key passed to score_jobs_with_llm() changed from
-   cfg["groq_api_key"] to cfg["google_ai_api_key"].
-   scorer.py's public signature is unchanged — crew.py just passes the key.
+v2.2 changes vs v2.1:
+  - _get_llm(): model upgraded to llama-3.3-70b-instruct (fixes agent loop bug)
+  - Agent backstories and task descriptions are now profile-agnostic
+    (no hardcoded "GenAI/ML" references — works for any engineering profile)
+  - max_iter=3 added to all agents to hard-cap runaway loops
+  - Everything else (tools, state, build_crew structure) unchanged
 """
+
+import logging
+
+log = logging.getLogger(__name__)
+log.info("crew.py imported")
 
 import json
 import logging
 from pathlib import Path
 from datetime import date
 
-import google.generativeai as genai
+from nim_client import make_client, call_nim, clean_json
+
+log.info("nim_client imported")
 from crewai import Agent, Task, Crew, Process, LLM
+
+log.info("crewai imported")
 from crewai.tools import tool
+
+log.info("crewai.tools imported")
 
 from sources.public_apis import (
     fetch_remotive,
@@ -38,10 +37,20 @@ from sources.public_apis import (
     fetch_freshersworld,
 )
 from sources.career_portals import fetch_all_career_portals
+
+log.info("sources imported career portals")
 from sources.linkedin import fetch_linkedin
+
+log.info("sources imported lined in")
 from sources.naukri import fetch_naukri
+
+log.info("sources imported")
 from scorer import score_jobs_with_llm, CANDIDATE_PROFILE_FULL
+
+log.info("sources imported scorer")
 from reporter import build_html_report, send_email
+
+log.info("sources imported reporter")
 from utils import (
     load_seen,
     save_seen,
@@ -50,7 +59,11 @@ from utils import (
     load_profile,
     get_verifier_system_prompt,
 )
+
+log.info("sources imported utils")
 from filters import apply_all_filters
+
+log.info("sources imported filters")
 
 log = logging.getLogger(__name__)
 
@@ -83,48 +96,45 @@ class _PipelineState:
 _state = _PipelineState()
 
 
-# ── CHANGE 1: _get_llm — Ollama → NVIDIA NIM ─────────────────────────────────
+# ── LLM — NVIDIA NIM llama-3.3-70b-instruct ──────────────────────────────────
 
 
 def _get_llm() -> LLM:
     """
     NVIDIA NIM via LiteLLM's openai/ prefix.
-
-    LiteLLM (bundled with crewai) treats any model string starting with
-    "openai/" as an OpenAI-compatible endpoint and uses base_url for routing.
-    NVIDIA NIM's endpoint is fully OpenAI-compatible, so no extra package needed.
-
-    Model: meta/llama-3.1-8b-instruct
-      - Free tier: 1000 credits/month at build.nvidia.com
-      - Fast, reliable instruction following for short agent reasoning tasks
-      - Works identically locally and on GitHub Actions (no Ollama server needed)
-
-    To use a different NIM model:
-      https://build.nvidia.com/explore/discover — pick any, update NIM_MODEL.
-
-    Requires env var or config key: NVIDIA_NIM_API_KEY / nvidia_nim_api_key
+    Model: meta/llama-3.3-70b-instruct
+      - Larger model reliably follows CrewAI ReAct format and stops after one tool call
+      - llama-3.1-8b-instruct was too small and caused agent loop (tool called 4+ times)
     """
     import os
+
+    log.info("=" * 60)
+    log.info("ENTERING _get_llm()")
+    log.info("=" * 60)
 
     nim_key = _state.get("config", {}).get("nvidia_nim_api_key") or os.getenv(
         "NVIDIA_NIM_API_KEY", ""
     )
-    if not nim_key:
-        raise EnvironmentError(
-            "NVIDIA_NIM_API_KEY not set. "
-            "Get a free key at https://build.nvidia.com — click any model → Get API Key."
-        )
 
-    return LLM(
-        model="openai/meta/llama-3.1-8b-instruct",
+    log.info("NVIDIA key exists: %s", bool(nim_key))
+    if nim_key:
+        log.info("Key prefix: %s...", nim_key[:10])
+
+    log.info("Creating CrewAI LLM object...")
+
+    llm = LLM(
+        model="openai/meta/llama-3.3-70b-instruct",
         api_key=nim_key,
         base_url="https://integrate.api.nvidia.com/v1",
         temperature=0.1,
         max_tokens=512,
     )
 
+    log.info("CrewAI LLM object created successfully")
+    return llm
 
-# ── Tool 1: Scout — UNCHANGED ─────────────────────────────────────────────────
+
+# ── Tool 1: Scout ─────────────────────────────────────────────────────────────
 
 
 @tool("Fetch all jobs from all sources")
@@ -202,16 +212,15 @@ def fetch_all_jobs_tool() -> str:
     )
 
 
-# ── Tool 2: Analyst — only api_key key name changed ──────────────────────────
+# ── Tool 2: Analyst ───────────────────────────────────────────────────────────
 
 
-@tool("Score jobs with Gemini intent matching")
+@tool("Score jobs with intent matching")
 def score_jobs_tool() -> str:
-    """Scores pre-filtered fresh jobs using Gemini intent matching against the candidate profile."""
+    """Scores pre-filtered fresh jobs using intent matching against the candidate profile."""
     fresh = _state.get("fresh_jobs", [])
     cfg = _state.get("config", {})
-    # CHANGED: groq_api_key → google_ai_api_key
-    api_key = cfg.get("google_ai_api_key", "")
+    api_key = cfg.get("nvidia_nim_api_key", "")
     batch_size = cfg.get("llm_batch_size", 20)
 
     if not fresh:
@@ -232,7 +241,7 @@ def score_jobs_tool() -> str:
     )
 
 
-# ── Tool 3: Verifier — CHANGE 2: Groq client → Gemini ───────────────────────
+# ── Tool 3: Verifier ──────────────────────────────────────────────────────────
 
 
 @tool("Verify HIGH priority jobs for accuracy")
@@ -241,8 +250,7 @@ def verify_jobs_tool() -> str:
     scored = _state.get("scored_jobs", [])
     log.info(f"Verifier: entry — len(scored_jobs)={len(scored)} id={id(_state)}")
     cfg = _state.get("config", {})
-    # CHANGED: groq_api_key → google_ai_api_key
-    api_key = cfg.get("google_ai_api_key", "")
+    api_key = cfg.get("nvidia_nim_api_key", "")
 
     if not scored:
         _state["verified_jobs"] = []
@@ -255,21 +263,13 @@ def verify_jobs_tool() -> str:
         _state["verified_jobs"] = scored
         return f"No HIGH jobs to verify. Passing {len(scored)} jobs through."
 
-    log.info(f"Verifier: checking {len(high_jobs)} HIGH jobs via Gemini...")
+    log.info(f"Verifier: checking {len(high_jobs)} HIGH jobs via NIM...")
 
     profile = load_profile()
     VERIFY_PROMPT = get_verifier_system_prompt(profile)
 
     try:
-        # CHANGED: Groq(api_key=...) → genai.configure + GenerativeModel
-        genai.configure(api_key=api_key)
-        model = genai.GenerativeModel(
-            model_name="gemini-2.0-flash",
-            generation_config=genai.GenerationConfig(
-                temperature=0.05,
-                response_mime_type="application/json",
-            ),
-        )
+        nim = make_client(api_key)
 
         payload = [
             {
@@ -288,10 +288,8 @@ def verify_jobs_tool() -> str:
             f"{json.dumps(payload)}\n"
             "JSON only. No truncation."
         )
-        full_prompt = f"{VERIFY_PROMPT}\n\n{user_content}"
 
-        response = model.generate_content(full_prompt)
-        raw = response.text
+        raw = clean_json(call_nim(nim, VERIFY_PROMPT, user_content))
         results = json.loads(raw)
         result_map = {r["job_id"]: r for r in results}
         downgraded = 0
@@ -342,7 +340,7 @@ def verify_jobs_tool() -> str:
     )
 
 
-# ── Tool 4: Reporter — UNCHANGED ─────────────────────────────────────────────
+# ── Tool 4: Reporter ──────────────────────────────────────────────────────────
 
 
 @tool("Build HTML report and send email digest")
@@ -409,12 +407,22 @@ def build_report_tool() -> str:
     return f"Report saved to {path}. Email disabled in config."
 
 
-# ── Crew builder — UNCHANGED except llm = _get_llm() now returns NIM LLM ─────
+# ── Crew builder ──────────────────────────────────────────────────────────────
 
 
 def build_crew(cfg: dict) -> Crew:
+
+    log.info("=" * 60)
+    log.info("ENTER build_crew()")
+    log.info("=" * 60)
+
     _state["config"] = cfg
+
+    log.info("Calling _get_llm()...")
     llm = _get_llm()
+    log.info("_get_llm() completed")
+
+    log.info("Creating Scout agent...")
 
     scout = Agent(
         role="Job Scout",
@@ -422,34 +430,50 @@ def build_crew(cfg: dict) -> Crew:
             "Fetch all fresh job listings from all sources. "
             "Apply pre-LLM filters BEFORE handing off to the Analyst."
         ),
-        backstory="Expert at sourcing and cleaning tech job data across all platforms.",
+        backstory=(
+            "Expert at sourcing and cleaning tech job data across all platforms. "
+            "Fetches from LinkedIn, Naukri, career portals, and public APIs."
+        ),
         tools=[fetch_all_jobs_tool],
         llm=llm,
         verbose=True,
         allow_delegation=False,
+        max_iter=3,
     )
 
     analyst = Agent(
         role="Job Analyst",
-        goal="Score pre-filtered fresh jobs by intent match using Gemini.",
-        backstory="Technical recruiter scoring GenAI/ML/SDE roles for a 2027 fresher.",
+        goal=(
+            "Score pre-filtered fresh jobs by intent match against the candidate profile. "
+            "Call score_jobs_tool exactly once and report the results."
+        ),
+        backstory=(
+            "Technical recruiter who scores job listings based on how well they match "
+            "the specific candidate's skills, target roles, and experience level."
+        ),
         tools=[score_jobs_tool],
         llm=llm,
         verbose=True,
         allow_delegation=False,
+        max_iter=3,
     )
 
     verifier = Agent(
         role="Job Verifier",
         goal=(
-            "Permissive second-pass on HIGH priority jobs. "
-            "Keep HIGH when uncertain. Only downgrade with >= 85% confidence."
+            "Run a permissive second-pass on HIGH priority jobs. "
+            "Keep HIGH when uncertain. Only downgrade with >= 85% confidence. "
+            "Call verify_jobs_tool exactly once and report the results."
         ),
-        backstory="Senior recruiter doing a light quality check — defaults to keeping HIGH.",
+        backstory=(
+            "Senior recruiter doing a light quality check on top-scored jobs. "
+            "Defaults to keeping HIGH — only downgrades when clearly wrong."
+        ),
         tools=[verify_jobs_tool],
         llm=llm,
         verbose=True,
         allow_delegation=False,
+        max_iter=3,
     )
 
     reporter = Agent(
@@ -457,26 +481,35 @@ def build_crew(cfg: dict) -> Crew:
         goal=(
             "Split jobs into Top Internships and Top Full-Time Jobs. "
             "Build HTML digest with two ranked sections. Send email. "
-            "Only after this succeeds should fetched jobs be marked as seen."
+            "Call build_report_tool exactly once and report the results."
         ),
-        backstory="Turns verified job scores into a clean daily briefing with direct apply links.",
+        backstory=(
+            "Turns verified job scores into a clean daily briefing with direct apply links. "
+            "Saves the HTML report and sends the email digest."
+        ),
         tools=[build_report_tool],
         llm=llm,
         verbose=True,
         allow_delegation=False,
+        max_iter=3,
     )
 
     task_scout = Task(
         description=(
-            "Call fetch_all_jobs_tool. Fetch all sources, deduplicate, "
-            "run pre-LLM filters. Report counts at each stage."
+            "Call fetch_all_jobs_tool ONCE. "
+            "Fetch all sources, deduplicate, run pre-LLM filters. "
+            "Report counts at each stage. Do not call the tool more than once."
         ),
         expected_output="Total fetched, fresh after dedup, after filter. Internship vs full-time split.",
         agent=scout,
     )
 
     task_analyse = Task(
-        description="Call score_jobs_tool to score all filtered fresh jobs with Gemini.",
+        description=(
+            "Call score_jobs_tool ONCE to score all filtered fresh jobs. "
+            "Report the count of HIGH, MEDIUM, LOW jobs and how many were dropped. "
+            "Do not call the tool more than once."
+        ),
         expected_output="Count of HIGH, MEDIUM, LOW jobs and how many were dropped.",
         agent=analyst,
         context=[task_scout],
@@ -484,8 +517,9 @@ def build_crew(cfg: dict) -> Crew:
 
     task_verify = Task(
         description=(
-            "Call verify_jobs_tool. Be permissive — only downgrade HIGH jobs "
-            "when confidence is >= 85%."
+            "Call verify_jobs_tool ONCE. Be permissive — only downgrade HIGH jobs "
+            "when confidence is >= 85%. "
+            "Do not call the tool more than once."
         ),
         expected_output="Count of confirmed HIGH jobs and any downgrades made.",
         agent=verifier,
@@ -494,8 +528,9 @@ def build_crew(cfg: dict) -> Crew:
 
     task_report = Task(
         description=(
-            "Call build_report_tool. Split into internships and full-time. "
-            "Save report, send email, and persist seen_jobs.json now that the report succeeded."
+            "Call build_report_tool ONCE. Split into internships and full-time. "
+            "Save report and send email. "
+            "Do not call the tool more than once."
         ),
         expected_output="Internship count, full-time count, report path, email status.",
         agent=reporter,

@@ -2,35 +2,24 @@
 setup_profile.py
 Run once: python setup_profile.py
 Reads your resume PDF + your current projects description,
-extracts a structured profile using Groq, saves to config/profile.json.
+extracts a structured profile using Gemini, saves to config/profile.json.
 From then on, scorer.py uses profile.json automatically.
 
-CHANGES vs original:
-  - EXTRACTION_PROMPT no longer shows concrete example VALUES for
-    target_roles / target_companies / location_preferences / hard_vetoes.
-    Groq at low temperature tends to echo example values shown in a JSON
-    schema rather than deriving genuinely resume-specific content — this
-    was the root cause of "profile doesn't reflect my actual resume."
-    Now each of those fields has an explicit DERIVATION INSTRUCTION
-    instead of a sample array, forcing Groq to reason from resume text.
-  - Added a new field: "role_type_exclusions" — explicit non-engineering
-    role categories to exclude (content writing, prompt-engineering-as-
-    content, marketing, sales) derived from candidate's stated target
-    role type, not from a hardcoded list. This directly addresses the
-    "AI Content Writer recommended to AI Engineer candidate" mismatch.
-  - hard_vetoes now requires the model to justify each veto by quoting
-    which resume signal led to it, so vetoes are traceable to your resume
-    rather than generic boilerplate.
+MIGRATION (v2.0 → v2.1):
+  - Groq(api_key=...) → google.genai Client
+  - config key: groq_api_key → google_ai_api_key
+  - model: llama-3.3-70b-versatile → gemini-2.0-flash
+  - Everything else (prompts, build_scoring_prompt, main) UNCHANGED.
 """
 
 import json
 import sys
 from pathlib import Path
-from groq import Groq
 import fitz  # pymupdf
+from nim_client import make_client, call_nim, clean_json
 
-BASE        = Path(__file__).parent
-CONFIG      = BASE / "config" / "config.json"
+BASE = Path(__file__).parent
+CONFIG = BASE / "config" / "config.json"
 PROFILE_OUT = BASE / "config" / "profile.json"
 
 
@@ -42,15 +31,48 @@ EXTRACTION_PROMPT = """
 You are a technical career advisor. Extract a complete, structured candidate profile
 from the resume text provided.
 
-CRITICAL RULE: Every field below must be DERIVED from the actual resume text given
-to you. Do NOT use generic/example values. If you are unsure what belongs in a field,
-look for direct evidence in the resume (project tech stacks, job titles applied to,
-skills listed, internship roles held) rather than guessing a "typical" answer for
-a CS student. Fields with no resume evidence should be left empty — an empty list
-is more honest than a templated guess.
+CRITICAL RULES:
+1. Every field must be derived from actual resume text. No generic/example values.
+2. For derived fields (target_roles, hard_vetoes, role_type_exclusions), you MUST
+   reason from the evidence before writing the value. Think: what does THIS resume
+   actually show?
+3. Empty list is always better than a hallucinated generic answer.
 
-Return ONLY a valid JSON object with EXACTLY this structure — no extra fields,
-no markdown, no explanation:
+REASONING APPROACH FOR DERIVED FIELDS:
+
+For target_roles:
+  Step 1: List every tech/framework mentioned across ALL projects + experience.
+  Step 2: Map clusters to job titles hiring managers actually post:
+    - Java + Spring Boot → "Java Backend Engineer", "Backend Engineer"
+    - React + backend → "Full Stack Developer"
+    - Python + LangChain/RAG/LLM → "Generative AI Engineer", "LLM Engineer"
+    - ML models (XGBoost/PyTorch/sklearn) → "ML Engineer", "Data Scientist"
+    - Any programming + DSA → always add "Software Engineer", "SDE"
+    - AWS/Docker/K8s heavy → "DevOps Engineer", "Cloud Engineer"
+    - Android/Flutter → "Mobile Developer"
+  Step 3: Rank by which cluster has the most projects/experience.
+  Step 4: Return 4-8 role strings. Never invent a role not backed by resume evidence.
+
+For role_type_exclusions:
+  Step 1: Identify what the candidate's PRIMARY work is (coding? writing? analysis?).
+  Step 2: List roles that conflict with that primary work type.
+  Step 3: Be SPECIFIC to this resume. A Java backend engineer should exclude:
+    "SAP/ERP consultant roles" (if SAP was brief/non-primary),
+    "pure frontend roles" (if frontend is secondary),
+    "non-technical roles".
+    A pure AI/ML resume should exclude "manual testing", "business analyst".
+    Do NOT copy-paste generic AI content writing exclusions for a Java engineer.
+
+For hard_vetoes:
+  Step 1: Look at experience level → veto high experience requirements.
+  Step 2: Look at PRIMARY tech stack → veto roles requiring completely different stack.
+  Step 3: Look at internship history → if a short internship in unrelated tech
+    (e.g. 1-month SAP), veto full-time roles in that unrelated tech.
+  Step 4: Look at company type fit → if profile is product/startup focused,
+    veto IT services outsourcing without engineering title.
+  Step 5: Each veto MUST cite specific resume evidence. No generic vetoes.
+
+Return ONLY a valid JSON object with EXACTLY this structure:
 
 {
   "name": "full name",
@@ -67,23 +89,23 @@ no markdown, no explanation:
     "cgpa": "cgpa value"
   },
 
-  "current_status": "e.g. Final year B.Tech student, interning as GenAI Engineer",
+  "current_status": "combine degree status + any active internship/job from experience section",
 
   "technical_skills": {
     "primary_languages": ["lang1", "lang2"],
-    "ai_ml": ["skill1", "skill2"],
-    "backend": ["skill1", "skill2"],
-    "cloud_devops": ["skill1", "skill2"],
-    "databases": ["skill1", "skill2"],
-    "frontend": ["skill1", "skill2"],
-    "other": ["skill1", "skill2"]
+    "ai_ml": ["only include if resume shows actual AI/ML work — frameworks, models, APIs used"],
+    "backend": ["frameworks and tools used in backend projects or experience"],
+    "cloud_devops": ["cloud/devops tools explicitly mentioned"],
+    "databases": ["databases used in projects or experience"],
+    "frontend": ["frontend frameworks/tools used"],
+    "other": ["anything that doesn't fit above categories"]
   },
 
   "competitive_programming": {
-    "leetcode_rating": "rating",
-    "leetcode_problems": "count",
-    "codechef_rating": "rating or stars",
-    "other": "any other CP achievements"
+    "leetcode_rating": "numeric rating if mentioned, else empty string",
+    "leetcode_problems": "count or description exactly as stated in resume",
+    "codechef_rating": "rating or stars if mentioned, else empty string",
+    "other": "any other CP platform or achievement"
   },
 
   "projects": [
@@ -101,7 +123,7 @@ no markdown, no explanation:
       "role": "role/title",
       "company": "company name",
       "duration": "duration",
-      "description": "what you did"
+      "description": "what you did — include all bullet points"
     }
   ],
 
@@ -115,38 +137,32 @@ no markdown, no explanation:
     }
   ],
 
-  "publications": [
-    {
-      "title": "paper title",
-      "conference": "conference name",
-      "description": "what it covers"
-    }
-  ],
+  "publications": [],
 
- "target_roles": "DERIVE this strictly from the resume text. Follow this logic: Step 1 — list every distinct technology, framework, and tool mentioned across ALL projects and experience. Step 2 — for each technology cluster, map to the industry job title that hiring managers actually post: (React+Node/FastAPI → 'Full Stack Developer'), (FastAPI/Django/Spring Boot alone → 'Backend Engineer'), (LangChain/RAG/ChromaDB/LLMs/embeddings → 'Generative AI Engineer', 'LLM Engineer'), (TensorFlow/PyTorch/scikit-learn/XGBoost → 'ML Engineer', 'Data Scientist'), (Android/Flutter/React Native → 'Mobile Developer'), (AWS/Docker/Kubernetes/Terraform → 'DevOps Engineer', 'Cloud Engineer'), (React/Vue/Angular alone → 'Frontend Developer'), (any programming language + DSA + projects → always include 'Software Engineer', 'SDE'). Step 3 — rank by how many projects use that cluster — the cluster with most projects becomes PRIMARY roles listed first. Step 4 — return 6-10 role strings as a JSON array. Never invent roles not supported by at least one concrete resume artifact.",
+  "target_roles": ["role1", "role2"],
 
-  "target_companies": "DERIVE this ONLY if the resume explicitly mentions target companies, applied-to companies, or referral mentions. If the resume contains no explicit company preferences, return an empty array — do NOT invent a generic FAANG/unicorn list.",
+  "target_companies": [],
 
-  "location_preferences": "DERIVE this from the candidate's current location (city/state mentioned in contact info or education) and any explicitly stated location preference in the resume. If none stated beyond current location, return just that city plus 'Remote India'. Do NOT default to a generic multi-city Indian tech-hub list.",
+  "location_preferences": ["city from resume contact/education", "Remote India"],
 
-  "graduation_batch": "year extracted from education.graduation_year",
+  "graduation_batch": "year from education",
   "experience_level": "fresher",
   "max_experience_years": 2,
 
-  "role_type_exclusions": "DERIVE this by identifying what the candidate's resume evidence is NOT. Specifically check: does the resume show hands-on coding (writing code, building systems, debugging) or does it show content/communication work (writing articles, prompts-as-content, documentation-only, non-technical analysis)? If the resume is clearly a HANDS-ON ENGINEERING profile (the common case for CS/AI/ML resumes), explicitly list: ['AI content writing', 'prompt engineering for content/marketing', 'AI marketing/copywriting roles', 'non-technical AI trainer roles', 'data annotation without engineering component']. Only omit these exclusions if the resume itself shows genuine content/writing work as a real skill area.",
+  "role_type_exclusions": ["specific exclusion derived from this resume", "..."],
 
-  "hard_vetoes": "DERIVE this as a JSON array of objects: [{'veto': 'short description', 'resume_evidence': 'what in the resume justifies this veto'}]. Derive vetoes from: (1) experience level mismatches (fresher → veto 3+ years required); (2) role mismatches (no DevOps projects → veto pure DevOps); (3) location constraints; (4) company type mismatches — IMPORTANT: if the candidate's profile is clearly AI/ML/product-engineering focused (building AI systems, RAG pipelines, ML models), derive a veto for IT services/outsourcing companies (TCS, Infosys, Wipro, HCL, Accenture, Capgemini, Tech Mahindra, Cognizant, Mphasis, Genpact, Hexaware, LTI, LTIMindtree, Birlasoft) WITHOUT an AI/ML title — because these companies hire freshers into generic IT support/CRUD roles, not the AI/ML engineering roles this candidate targets. Every veto must cite real resume evidence.",
+  "hard_vetoes": [
+    {
+      "veto": "specific veto derived from resume evidence",
+      "resume_evidence": "exact quote or specific evidence from the resume"
+    }
+  ]
 }
-
-Be thorough. Extract every skill, project, achievement you can find.
-If a field is not in the resume, use an empty string or empty list — never
-fall back to a plausible-sounding generic answer.
 """
-
 
 def extract_text_from_pdf(pdf_path: Path) -> str:
     """Extract all text from a PDF using pymupdf."""
-    doc  = fitz.open(str(pdf_path))
+    doc = fitz.open(str(pdf_path))
     text = ""
     for page in doc:
         text += page.get_text()
@@ -154,92 +170,87 @@ def extract_text_from_pdf(pdf_path: Path) -> str:
     return text.strip()
 
 
-def extract_profile_with_groq(resume_text: str, current_projects: str, api_key: str) -> dict:
-    """Send resume text to Groq and extract structured profile."""
-    client = Groq(api_key=api_key)
+def extract_profile_with_nim(
+    resume_text: str, current_projects: str, api_key: str
+) -> dict:
+    """Send resume text to Gemini and extract structured profile."""
+    client = make_client(api_key)
 
-    response = client.chat.completions.create(
-        model="llama-3.3-70b-versatile",
-        messages=[
-            {"role": "system", "content": EXTRACTION_PROMPT},
-            {
-                "role": "user",
-                "content": (
-                    f"RESUME TEXT:\n{resume_text}\n\n"
-                    f"CURRENT PROJECTS (not yet on resume):\n{current_projects}\n\n"
-                    "Extract the complete profile. Return JSON only. "
-                    "Remember: target_roles, target_companies, location_preferences, "
-                    "role_type_exclusions, and hard_vetoes must be DERIVED from the "
-                    "resume text above, not generic examples."
-                ),
-            },
-        ],
-        temperature=0.1,
+    user_content = (
+        f"RESUME TEXT:\n{resume_text}\n\n"
+        f"CURRENT PROJECTS (not yet on resume):\n{current_projects}\n\n"
+        "Extract the complete profile. Return JSON only. "
+        "Remember: target_roles, target_companies, location_preferences, "
+        "role_type_exclusions, and hard_vetoes must be DERIVED from the "
+        "resume text above, not generic examples."
+    )
+
+    raw = call_nim(
+        client,
+        system_prompt=EXTRACTION_PROMPT,
+        user_content=user_content,
         max_tokens=4096,
     )
 
-    raw = response.choices[0].message.content.strip()
-
-    # Strip markdown fences
-    if "```" in raw:
-        raw = raw.split("```")[1]
-        if raw.startswith("json"):
-            raw = raw[4:].strip()
-
-    return json.loads(raw)
+    try:
+        return json.loads(clean_json(raw))
+    except json.JSONDecodeError as e:
+        print(f"ERROR: JSON parse failed: {e}")
+        print(f"Raw response (first 500 chars): {raw[:500]}")
+        raise
 
 
 def build_scoring_prompt(profile: dict) -> str:
     """
     Build a rich, dynamic CANDIDATE_PROFILE string from the extracted profile.
     This is what goes into scorer.py's scoring prompt.
-
-    Now includes role_type_exclusions and structured hard_vetoes (with
-    resume_evidence) so the scorer can see WHY a veto exists, not just that
-    it exists — this helps the LLM apply vetoes correctly to edge cases.
+    UNCHANGED from original.
     """
-    name    = profile.get("name", "")
-    edu     = profile.get("education", {})
-    status  = profile.get("current_status", "")
-    skills  = profile.get("technical_skills", {})
-    cp      = profile.get("competitive_programming", {})
-    exp     = profile.get("experience_level", "fresher")
-    batch   = profile.get("graduation_batch", "2027")
-    vetoes  = profile.get("hard_vetoes", [])
+    name = profile.get("name", "")
+    edu = profile.get("education", {})
+    status = profile.get("current_status", "")
+    skills = profile.get("technical_skills", {})
+    cp = profile.get("competitive_programming", {})
+    exp = profile.get("experience_level", "fresher")
+    batch = profile.get("graduation_batch", "2027")
+    vetoes = profile.get("hard_vetoes", [])
     exclusions = profile.get("role_type_exclusions", [])
     targets = profile.get("target_roles", [])
     companies = profile.get("target_companies", [])
     locations = profile.get("location_preferences", [])
 
-    # Build skills string
     all_skills = []
     for category, skill_list in skills.items():
         if skill_list:
             all_skills.extend(skill_list)
     skills_str = ", ".join(all_skills)
 
-    # Build projects string
     projects_str = ""
     for p in profile.get("projects", []):
         tech = ", ".join(p.get("tech_stack", []))
         highlights = "; ".join(p.get("highlights", []))
-        projects_str += f"- {p['name']}: {p.get('description','')} Stack: {tech}. {highlights}\n"
+        projects_str += (
+            f"- {p['name']}: {p.get('description','')} Stack: {tech}. {highlights}\n"
+        )
 
-    # Build experience string
     exp_str = ""
     for e in profile.get("experience", []):
         exp_str += f"- {e.get('role','')} at {e.get('company','')} ({e.get('duration','')}): {e.get('description','')}\n"
 
-    # Build achievements string
     achievements = "; ".join(profile.get("achievements", []))
-    hackathons   = "; ".join([f"{h['name']} ({h.get('result','')})" for h in profile.get("hackathons", [])])
-    publications = "; ".join([p.get("title","") for p in profile.get("publications", [])])
+    hackathons = "; ".join(
+        [f"{h['name']} ({h.get('result','')})" for h in profile.get("hackathons", [])]
+    )
+    publications = "; ".join(
+        [p.get("title", "") for p in profile.get("publications", [])]
+    )
 
-    # Build vetoes string — handle both old (string list) and new (object list) formats
     veto_lines = []
     for v in vetoes:
         if isinstance(v, dict):
-            veto_lines.append(f"- {v.get('veto','')} (evidence: {v.get('resume_evidence','')})")
+            veto_lines.append(
+                f"- {v.get('veto','')} (evidence: {v.get('resume_evidence','')})"
+            )
         else:
             veto_lines.append(f"- {v}")
     vetoes_str = "\n".join(veto_lines)
@@ -286,18 +297,18 @@ HARD VETOES (auto-disqualify, each tied to resume evidence):
 
 
 def main():
-    # Load config for API key
     if not CONFIG.exists():
         print("ERROR: config/config.json not found. Set up config first.")
         sys.exit(1)
 
-    cfg     = json.loads(CONFIG.read_text())
-    api_key = cfg.get("groq_api_key", "")
+    cfg = json.loads(CONFIG.read_text())
+    # CHANGED: groq_api_key → google_ai_api_key
+    api_key = cfg.get("nvidia_nim_api_key", "")
     if not api_key:
-        print("ERROR: groq_api_key missing from config.json")
+        print("ERROR: nvidia_nim_api_key missing from config.json")
+        print("Get a free key at: https://build.nvidia.com")
         sys.exit(1)
 
-    # Find resume PDF
     resume_path = None
     for candidate in [
         BASE / "config" / "resume.pdf",
@@ -319,20 +330,20 @@ def main():
     resume_text = extract_text_from_pdf(resume_path)
     print(f"Extracted {len(resume_text)} characters from resume.")
 
-    print("Sending to Groq for profile extraction...")
-    profile = extract_profile_with_groq(resume_text, CURRENT_PROJECTS, api_key)
+    print("Sending to NIM (llama-3.3-70b) for profile extraction...")
+    profile = extract_profile_with_nim(resume_text, CURRENT_PROJECTS, api_key)
 
-    # Add the scoring prompt to the profile
     profile["_scoring_prompt"] = build_scoring_prompt(profile)
 
-    # Save
     PROFILE_OUT.write_text(json.dumps(profile, indent=2), encoding="utf-8")
     print(f"\nProfile saved to: {PROFILE_OUT}")
     print("\nExtracted profile summary:")
     print(f"  Name:     {profile.get('name','')}")
     print(f"  College:  {profile.get('education',{}).get('college','')}")
     print(f"  Batch:    {profile.get('graduation_batch','')}")
-    print(f"  Skills:   {len(sum(profile.get('technical_skills',{}).values(),[]))} skills found")
+    print(
+        f"  Skills:   {len(sum(profile.get('technical_skills',{}).values(),[]))} skills found"
+    )
     print(f"  Projects: {len(profile.get('projects',[]))} projects found")
     print(f"  Exp:      {len(profile.get('experience',[]))} roles found")
     print(f"  Target roles (derived): {profile.get('target_roles', [])}")

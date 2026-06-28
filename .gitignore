@@ -1,8 +1,24 @@
-config/config.json
-logs/agent.log
+# Python
+venv/
+.venv/
 __pycache__/
 *.pyc
+
+# Models
+models/
+*.pt
+*.pth
+*.bin
+
+# VS Code
+.vscode/
+
+# Environment
+config/config.json
 .env
-*.egg-info/
-dist/
-.venv/
+
+# Cache
+.cache/
+
+# Logs
+*.log

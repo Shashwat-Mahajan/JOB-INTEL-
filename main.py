@@ -5,19 +5,33 @@ MIGRATION NOTE (v2.0 → v2.1)
 ──────────────────────────────
 Only _default_config() changed:
   OLD: "groq_api_key": os.getenv("GROQ_API_KEY", "")
-  NEW: "google_ai_api_key": os.getenv("GOOGLE_AI_API_KEY", "")
-       "nvidia_nim_api_key": os.getenv("NVIDIA_NIM_API_KEY", "")
+  NEW: "nvidia_nim_api_key": os.getenv("NVIDIA_NIM_API_KEY", "")
 
 Everything else — keyword resolution, profile loading, crew building — unchanged.
 """
 
 import os
+
+os.environ["TRANSFORMERS_OFFLINE"] = "1"
+os.environ["HF_HUB_OFFLINE"] = "1"
+os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
+os.environ["HF_HUB_DISABLE_PROGRESS_BARS"] = "1"
+os.environ["TOKENIZERS_PARALLELISM"] = "false"
+os.environ["NO_PROXY"] = "huggingface.co,cdn-lfs.huggingface.co"
+
+try:
+    import tiktoken
+
+    tiktoken.get_encoding("cl100k_base")
+    print("tiktoken pre-loaded OK")
+except Exception as e:
+    print(f"tiktoken pre-load failed: {e}")
+
 import logging
 from datetime import date
 from pathlib import Path
 
 from utils import setup_logging, load_config, load_profile, get_search_keywords
-from crew import build_crew
 
 BASE = Path(__file__).parent
 LOGS = BASE / "logs" / "agent.log"
@@ -28,6 +42,7 @@ CONFIG = BASE / "config" / "config.json"
 
 setup_logging(LOGS)
 log = logging.getLogger(__name__)
+log.info("Logger initialized: writing to %s", LOGS)
 
 DEFAULT_KEYWORDS = [
     "generative AI engineer fresher",
@@ -51,7 +66,6 @@ DEFAULT_KEYWORDS = [
 def _default_config() -> dict:
     return {
         # CHANGED: groq_api_key removed, two new keys added
-        "google_ai_api_key": os.getenv("GOOGLE_AI_API_KEY", ""),
         "nvidia_nim_api_key": os.getenv("NVIDIA_NIM_API_KEY", ""),
         "email_enabled": os.getenv("EMAIL_ENABLED", "false").lower() == "true",
         "email_from": os.getenv("EMAIL_FROM", ""),
@@ -73,22 +87,27 @@ def main():
     log.info("=" * 50)
 
     try:
+        from crew import build_crew
+        log.info("Crew imported")
+    except Exception:
+        log.exception("Failed to import crew")
+        raise
+
+    try:
         cfg = load_config(CONFIG)
+        log.info("Crew imported")
     except FileNotFoundError:
         log.warning("config/config.json not found — using env vars and defaults")
         cfg = _default_config()
 
     # Allow env vars to override config.json (needed for GitHub Actions)
-    if os.getenv("GOOGLE_AI_API_KEY"):
-        cfg["google_ai_api_key"] = os.getenv("GOOGLE_AI_API_KEY")
     if os.getenv("NVIDIA_NIM_API_KEY"):
         cfg["nvidia_nim_api_key"] = os.getenv("NVIDIA_NIM_API_KEY")
 
     # Validate required keys early — fail fast with a clear message
-    if not cfg.get("google_ai_api_key"):
+    if not cfg.get("nvidia_nim_api_key"):
         log.error(
-            "google_ai_api_key missing. "
-            "Get a free key at: https://aistudio.google.com/app/apikey"
+            "nvidia_nim_api_key missing. " "Get a free key at: https://build.nvidia.com"
         )
         raise SystemExit(1)
     if not cfg.get("nvidia_nim_api_key"):
@@ -134,7 +153,13 @@ def main():
     crew = build_crew(cfg)
 
     log.info("Running crew...")
-    result = crew.kickoff()
+    try:
+        log.info("Starting crew.kickoff()")
+        result = crew.kickoff()
+    except Exception:
+        log.exception("Crew crashed")
+        raise
+    log.info("Crew finished successfully")
 
     log.info(f"Result: {result}")
     log.info("Run complete.")

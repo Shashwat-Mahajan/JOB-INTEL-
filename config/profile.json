@@ -5,7 +5,7 @@
   "linkedin": "rushabhthakurdware",
   "github": "rushabhthakurdware",
   "education": {
-    "degree": "B.Tech in Computer Science Engineering",
+    "degree": "B. Tech",
     "branch": "Computer Science Engineering",
     "college": "Yeshwantrao Chavan College of Engineering",
     "graduation_year": "2027",
@@ -14,7 +14,7 @@
   "current_status": "Final year B.Tech student",
   "technical_skills": {
     "primary_languages": [
-      "Core Java",
+      "Java",
       "JavaScript",
       "C++",
       "C",
@@ -23,8 +23,6 @@
     "ai_ml": [],
     "backend": [
       "Spring Boot",
-      "JPA",
-      "Hibernate",
       "Node js",
       "Express js"
     ],
@@ -39,28 +37,26 @@
     "frontend": [
       "React js",
       "Html",
-      "CSS",
-      "GSAP",
-      "Three JS"
+      "CSS"
     ],
     "other": [
-      "Servlet",
-      "SAP Erp Software (MM Module)",
       "Rust",
-      "Streamlit",
-      "Swing"
+      "GSAP",
+      "Three JS",
+      "Swing",
+      "Streamlit"
     ]
   },
   "competitive_programming": {
     "leetcode_rating": "",
-    "leetcode_problems": "",
+    "leetcode_problems": "14 badges",
     "codechef_rating": "",
-    "other": "Earned more than 14 badges of Leetcode"
+    "other": ""
   },
   "projects": [
     {
       "name": "CODELENS",
-      "description": "A distributed AI-as-a-Service application using React, Java Spring Boot, and PostgreSQL, integrating Gemini/Ollama for automated codebase analysis",
+      "description": "A distributed AI-as-a-Service application using React, Java Spring Boot, and PostgreSQL, integrating Gemini/Ollama for automated codebase analysis.",
       "tech_stack": [
         "Spring Boot",
         "React",
@@ -68,14 +64,14 @@
         "Python"
       ],
       "highlights": [
-        "Implemented a custom File-Walker algorithm and RESTful pipeline to ingest remote repositories",
-        "Provided developers with an interactive 'Logic Explorer' to navigate complex project architectures"
+        "Custom File-Walker algorithm",
+        "RESTful pipeline"
       ],
       "status": "completed"
     },
     {
       "name": "E-Commerce Backend System",
-      "description": "A scalable backend system for an E-Commerce platform using Spring Boot and Java",
+      "description": "A scalable backend system for an E-Commerce platform using Spring Boot and Java.",
       "tech_stack": [
         "Java",
         "Spring Boot",
@@ -83,8 +79,8 @@
         "Rest Api"
       ],
       "highlights": [
-        "Implemented RESTful APIs for user authentication, product management, cart operations, order processing, and payment workflow",
-        "Integrated database operations using JPA/Hibernate with MySQL for efficient data storage and retrieval"
+        "RESTful APIs",
+        "Layered architecture"
       ],
       "status": "completed"
     }
@@ -93,20 +89,20 @@
     {
       "role": "Java Intern",
       "company": "Data Alchemy PVT LTP",
-      "duration": "18 Feb 2026-Current",
-      "description": "Engineered robust and high-performance backend applications by leveraging Java and the Spring Boot framework to streamline server-side logic and improve system efficiency"
+      "duration": "18 Feb 2026 - Current",
+      "description": "Engineered robust and high-performance backend applications using Java and Spring Boot."
     },
     {
       "role": "SAP Intern",
       "company": "Excel Controlinkage PVT LTP",
-      "duration": "21 June 2025 \u2013 21 July 2025",
-      "description": "Gained hands-on experience in SAP MM (Materials Management) and ABAP, understanding the core architecture and data flow of SAP ERP systems"
+      "duration": "21 June 2025 - 21 July 2025",
+      "description": "Gained hands-on experience in SAP MM and ABAP."
     }
   ],
   "achievements": [
     "Runner-up in SVPCET Hackathon",
     "Finalist of Central India Hackathon",
-    "Led a team in Smart India Hackathon to develop Smart Attendance System Using QR"
+    "Led a team in Smart India Hackathon"
   ],
   "hackathons": [
     {
@@ -121,7 +117,7 @@
     },
     {
       "name": "Smart India Hackathon",
-      "result": "Participant",
+      "result": "",
       "description": "Developed Smart Attendance System Using QR"
     }
   ],
@@ -129,9 +125,7 @@
   "target_roles": [
     "Software Engineer",
     "Full Stack Developer",
-    "Backend Engineer",
-    "Java Developer",
-    "Spring Boot Developer"
+    "Backend Engineer"
   ],
   "target_companies": [],
   "location_preferences": [
@@ -151,8 +145,8 @@
   "hard_vetoes": [
     {
       "veto": "IT services/outsourcing companies without AI/ML title",
-      "resume_evidence": "Hands-on experience in full-stack web development and Java, strong problem-solving abilities backed by solid Data Structure and Algorithms skills"
+      "resume_evidence": "AI/ML focused projects and experience"
     }
   ],
-  "_scoring_prompt": "CANDIDATE: Rushabh Thakurdware\nSTATUS: Final year B.Tech student\nEDUCATION: B.Tech in Computer Science Engineering in Computer Science Engineering from Yeshwantrao Chavan College of Engineering\nGRADUATION: 2027 batch | CGPA: 8.15\nEXPERIENCE LEVEL: fresher (max 2 years)\n\nTECHNICAL SKILLS:\nCore Java, JavaScript, C++, C, Python, Spring Boot, JPA, Hibernate, Node js, Express js, Docker, MySQL, PostgreSQL, Mongo DB, React js, Html, CSS, GSAP, Three JS, Servlet, SAP Erp Software (MM Module), Rust, Streamlit, Swing\n\nCOMPETITIVE PROGRAMMING:\nLeetCode:  rating,  problems solved\nCodeChef: \nEarned more than 14 badges of Leetcode\n\nKEY PROJECTS:\n- CODELENS: A distributed AI-as-a-Service application using React, Java Spring Boot, and PostgreSQL, integrating Gemini/Ollama for automated codebase analysis Stack: Spring Boot, React, SQL, Python. Implemented a custom File-Walker algorithm and RESTful pipeline to ingest remote repositories; Provided developers with an interactive 'Logic Explorer' to navigate complex project architectures\n- E-Commerce Backend System: A scalable backend system for an E-Commerce platform using Spring Boot and Java Stack: Java, Spring Boot, PostgreSQL, Rest Api. Implemented RESTful APIs for user authentication, product management, cart operations, order processing, and payment workflow; Integrated database operations using JPA/Hibernate with MySQL for efficient data storage and retrieval\n\nWORK EXPERIENCE:\n- Java Intern at Data Alchemy PVT LTP (18 Feb 2026-Current): Engineered robust and high-performance backend applications by leveraging Java and the Spring Boot framework to streamline server-side logic and improve system efficiency\n- SAP Intern at Excel Controlinkage PVT LTP (21 June 2025 \u2013 21 July 2025): Gained hands-on experience in SAP MM (Materials Management) and ABAP, understanding the core architecture and data flow of SAP ERP systems\n\nACHIEVEMENTS: Runner-up in SVPCET Hackathon; Finalist of Central India Hackathon; Led a team in Smart India Hackathon to develop Smart Attendance System Using QR\nHACKATHONS: SVPCET Hackathon (Runner-up); Central India Hackathon (Finalist); Smart India Hackathon (Participant)\nPUBLICATIONS: \n\nTARGET ROLES (priority order, derived from resume evidence): Software Engineer, Full Stack Developer, Backend Engineer, Java Developer, Spring Boot Developer\nTARGET COMPANIES: no explicit preference \u2014 any reputable tech company\nPREFERRED LOCATIONS: Nagpur, Remote India\n\nROLE TYPE EXCLUSIONS (this candidate wants HANDS-ON ENGINEERING work, NOT these):\nAI content writing, prompt engineering for content/marketing, AI marketing/copywriting roles, non-technical AI trainer roles, data annotation without engineering component\n\nHARD VETOES (auto-disqualify, each tied to resume evidence):\n- IT services/outsourcing companies without AI/ML title (evidence: Hands-on experience in full-stack web development and Java, strong problem-solving abilities backed by solid Data Structure and Algorithms skills)"
+  "_scoring_prompt": "CANDIDATE: Rushabh Thakurdware\nSTATUS: Final year B.Tech student\nEDUCATION: B. Tech in Computer Science Engineering from Yeshwantrao Chavan College of Engineering\nGRADUATION: 2027 batch | CGPA: 8.15\nEXPERIENCE LEVEL: fresher (max 2 years)\n\nTECHNICAL SKILLS:\nJava, JavaScript, C++, C, Python, Spring Boot, Node js, Express js, Docker, MySQL, PostgreSQL, Mongo DB, React js, Html, CSS, Rust, GSAP, Three JS, Swing, Streamlit\n\nCOMPETITIVE PROGRAMMING:\nLeetCode:  rating, 14 badges problems solved\nCodeChef: \n\n\nKEY PROJECTS:\n- CODELENS: A distributed AI-as-a-Service application using React, Java Spring Boot, and PostgreSQL, integrating Gemini/Ollama for automated codebase analysis. Stack: Spring Boot, React, SQL, Python. Custom File-Walker algorithm; RESTful pipeline\n- E-Commerce Backend System: A scalable backend system for an E-Commerce platform using Spring Boot and Java. Stack: Java, Spring Boot, PostgreSQL, Rest Api. RESTful APIs; Layered architecture\n\nWORK EXPERIENCE:\n- Java Intern at Data Alchemy PVT LTP (18 Feb 2026 - Current): Engineered robust and high-performance backend applications using Java and Spring Boot.\n- SAP Intern at Excel Controlinkage PVT LTP (21 June 2025 - 21 July 2025): Gained hands-on experience in SAP MM and ABAP.\n\nACHIEVEMENTS: Runner-up in SVPCET Hackathon; Finalist of Central India Hackathon; Led a team in Smart India Hackathon\nHACKATHONS: SVPCET Hackathon (Runner-up); Central India Hackathon (Finalist); Smart India Hackathon ()\nPUBLICATIONS: \n\nTARGET ROLES (priority order, derived from resume evidence): Software Engineer, Full Stack Developer, Backend Engineer\nTARGET COMPANIES: no explicit preference \u2014 any reputable tech company\nPREFERRED LOCATIONS: Nagpur, Remote India\n\nROLE TYPE EXCLUSIONS (this candidate wants HANDS-ON ENGINEERING work, NOT these):\nAI content writing, prompt engineering for content/marketing, AI marketing/copywriting roles, non-technical AI trainer roles, data annotation without engineering component\n\nHARD VETOES (auto-disqualify, each tied to resume evidence):\n- IT services/outsourcing companies without AI/ML title (evidence: AI/ML focused projects and experience)"
 }
