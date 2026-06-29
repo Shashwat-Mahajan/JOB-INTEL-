@@ -1,13 +1,12 @@
 """
 main.py — CrewAI pipeline entry point.
 
-MIGRATION NOTE (v2.0 → v2.1)
-──────────────────────────────
-Only _default_config() changed:
-  OLD: "groq_api_key": os.getenv("GROQ_API_KEY", "")
-  NEW: "nvidia_nim_api_key": os.getenv("NVIDIA_NIM_API_KEY", "")
-
-Everything else — keyword resolution, profile loading, crew building — unchanged.
+v2.2 changes:
+  - DEFAULT_KEYWORDS removed — no more hardcoded AI/ML fallback keywords
+  - _build_fallback_keywords() derives generic SDE/backend/intern keywords
+  - include_internships block now derives intern keywords from profile target_roles
+    instead of appending from hardcoded DEFAULT_KEYWORDS
+  - Duplicate nvidia_nim_api_key validation block removed
 """
 
 import os
@@ -44,28 +43,32 @@ setup_logging(LOGS)
 log = logging.getLogger(__name__)
 log.info("Logger initialized: writing to %s", LOGS)
 
-DEFAULT_KEYWORDS = [
-    "generative AI engineer fresher",
-    "generative AI intern",
-    "LLM engineer entry level",
-    "LLM engineer intern",
-    "AI engineer 2026 2027 batch",
-    "AI engineer intern",
-    "machine learning engineer fresher",
-    "machine learning intern",
-    "software engineer AI india",
-    "software engineer intern india",
-    "backend engineer AI startup india",
-    "backend developer intern python",
-    "SDE fresher 2027 india",
-    "SDE intern india",
-    "data science intern india",
-]
+
+def _build_fallback_keywords() -> list[str]:
+    """
+    Generic SDE/backend/fullstack keywords used ONLY when no profile.json exists.
+    Not AI/ML specific — works for any engineering fresher.
+    """
+    return [
+        "software engineer fresher india",
+        "software engineer intern india",
+        "SDE fresher 2027 india",
+        "SDE intern india",
+        "backend engineer fresher india",
+        "backend developer intern india",
+        "full stack developer fresher india",
+        "full stack developer intern india",
+        "java developer fresher india",
+        "java developer intern india",
+        "python developer fresher india",
+        "python developer intern india",
+        "web developer fresher india",
+        "web developer intern india",
+    ]
 
 
 def _default_config() -> dict:
     return {
-        # CHANGED: groq_api_key removed, two new keys added
         "nvidia_nim_api_key": os.getenv("NVIDIA_NIM_API_KEY", ""),
         "email_enabled": os.getenv("EMAIL_ENABLED", "false").lower() == "true",
         "email_from": os.getenv("EMAIL_FROM", ""),
@@ -88,6 +91,7 @@ def main():
 
     try:
         from crew import build_crew
+
         log.info("Crew imported")
     except Exception:
         log.exception("Failed to import crew")
@@ -95,21 +99,18 @@ def main():
 
     try:
         cfg = load_config(CONFIG)
-        log.info("Crew imported")
+        log.info("Config loaded from config.json")
     except FileNotFoundError:
         log.warning("config/config.json not found — using env vars and defaults")
         cfg = _default_config()
 
-    # Allow env vars to override config.json (needed for GitHub Actions)
+    # Allow env vars to override config.json (needed for Render / GitHub Actions)
     if os.getenv("NVIDIA_NIM_API_KEY"):
         cfg["nvidia_nim_api_key"] = os.getenv("NVIDIA_NIM_API_KEY")
+    if os.getenv("NVIDIA_NIM_API_KEY_2"):
+        cfg["nvidia_nim_api_key_2"] = os.getenv("NVIDIA_NIM_API_KEY_2")
 
-    # Validate required keys early — fail fast with a clear message
-    if not cfg.get("nvidia_nim_api_key"):
-        log.error(
-            "nvidia_nim_api_key missing. " "Get a free key at: https://build.nvidia.com"
-        )
-        raise SystemExit(1)
+    # Validate required key early — fail fast with a clear message
     if not cfg.get("nvidia_nim_api_key"):
         log.error(
             "nvidia_nim_api_key missing. "
@@ -121,33 +122,65 @@ def main():
     if profile:
         cfg["profile"] = profile
         log.info(
-            f"Profile loaded: {profile.get('name', 'unknown')} ({profile.get('graduation_batch', '')} batch)"
+            f"Profile loaded: {profile.get('name', 'unknown')} "
+            f"({profile.get('graduation_batch', '')} batch)"
         )
     else:
         log.warning("config/profile.json not found — run: python setup_profile.py")
 
+    # ── Build search keywords ─────────────────────────────────────────────────
     if not cfg.get("search_keywords"):
         if profile:
             cfg["search_keywords"] = get_search_keywords(profile)
             log.info(
-                f"Using {len(cfg['search_keywords'])} profile-driven search "
-                f"keywords derived from target_roles in profile.json"
+                f"Using {len(cfg['search_keywords'])} profile-driven search keywords "
+                f"derived from target_roles in profile.json"
             )
         else:
-            cfg["search_keywords"] = DEFAULT_KEYWORDS
+            cfg["search_keywords"] = _build_fallback_keywords()
             log.info(
-                "No profile found and no config override — falling back to hardcoded DEFAULT_KEYWORDS"
+                "No profile found — using generic SDE/backend fallback keywords. "
+                "Run setup_profile.py for profile-specific keywords."
             )
 
+    # ── Ensure intern keywords are profile-driven, not AI-hardcoded ──────────
     if cfg.get("include_internships", True):
         intern_kw = [k for k in cfg["search_keywords"] if "intern" in k.lower()]
         if len(intern_kw) < 3:
-            cfg["search_keywords"] = list(
-                dict.fromkeys(
-                    cfg["search_keywords"]
-                    + [k for k in DEFAULT_KEYWORDS if "intern" in k.lower()]
+            # Derive intern variants from profile target_roles, not hardcoded list
+            target_roles = profile.get("target_roles", []) if profile else []
+            if target_roles:
+                extra_intern = [
+                    f"{role} intern"
+                    for role in target_roles
+                    if f"{role} intern".lower()
+                    not in {k.lower() for k in cfg["search_keywords"]}
+                ]
+                cfg["search_keywords"] = list(
+                    dict.fromkeys(cfg["search_keywords"] + extra_intern)
                 )
-            )
+                log.info(
+                    f"Added {len(extra_intern)} intern keyword variants "
+                    f"from profile target_roles"
+                )
+            else:
+                # Fallback: add generic intern keywords
+                generic_intern = [
+                    k
+                    for k in _build_fallback_keywords()
+                    if "intern" in k.lower()
+                    and k.lower() not in {kw.lower() for kw in cfg["search_keywords"]}
+                ]
+                cfg["search_keywords"] = list(
+                    dict.fromkeys(cfg["search_keywords"] + generic_intern)
+                )
+
+    log.info(
+        "Final search keywords (%d): %s",
+        len(cfg["search_keywords"]),
+        ", ".join(cfg["search_keywords"][:5])
+        + ("..." if len(cfg["search_keywords"]) > 5 else ""),
+    )
 
     log.info("Building crew...")
     crew = build_crew(cfg)
@@ -159,8 +192,8 @@ def main():
     except Exception:
         log.exception("Crew crashed")
         raise
-    log.info("Crew finished successfully")
 
+    log.info("Crew finished successfully")
     log.info(f"Result: {result}")
     log.info("Run complete.")
 

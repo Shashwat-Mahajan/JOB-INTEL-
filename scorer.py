@@ -33,6 +33,7 @@ Layer 3   NIM llama-3.3-70b-instruct  (strict verifier, EDGE CASES ONLY)
           Runs only on HIGH jobs where relevance_score is 65–75.
           Jobs scored >= 76 are trusted — skip verifier entirely.
 """
+
 import os
 
 os.environ["HF_HUB_OFFLINE"] = "1"
@@ -41,6 +42,7 @@ os.environ["HF_HUB_DISABLE_TELEMETRY"] = "1"
 
 try:
     import huggingface_hub.constants as _hf_const
+
     _hf_const.HF_HUB_OFFLINE = True
 except Exception:
     pass
@@ -58,13 +60,22 @@ from pathlib import Path
 log.info("json imported , logging,time,pathlab")
 
 import numpy as np
+
 log.info("numpy imported")
 log.info("Before sentence_transformers import")
 from sentence_transformers import SentenceTransformer, CrossEncoder
+
 log.info("sentence_transformers imported successfully")
 log.info("sentence_transformers imported")
 
-from nim_client import make_client, call_nim, clean_json, NIM_SCORING_MODEL
+from nim_client import (
+    make_client,
+    call_nim,
+    call_nim_rotated,
+    clean_json,
+    NIM_SCORING_MODEL,
+)
+
 log.info("nim_client imported")
 
 log = logging.getLogger(__name__)
@@ -131,6 +142,7 @@ CANDIDATE_PROFILE, CANDIDATE_PROFILE_FULL = _load_profiles()
 # =============================================================================
 # Profile-driven prompt builders  (v2.2 — replaces hardcoded AI/ML prompts)
 # =============================================================================
+
 
 def _build_scoring_system(profile_prompt: str) -> str:
     """
@@ -217,7 +229,9 @@ def _build_profile_anchor(profile_prompt: str) -> str:
     Falls back to generic engineering terms if profile is empty.
     """
     if not profile_prompt or len(profile_prompt.strip()) < 50:
-        log.warning("Profile prompt too short for anchor — using generic engineering fallback")
+        log.warning(
+            "Profile prompt too short for anchor — using generic engineering fallback"
+        )
         return (
             "Software Engineer Backend Engineer Full Stack Developer "
             "Java Spring Boot Python React Node.js JavaScript "
@@ -227,20 +241,22 @@ def _build_profile_anchor(profile_prompt: str) -> str:
     # Extract skills and roles lines from the scoring prompt
     anchor_parts = []
     capture = False
-    for line in profile_prompt.split('\n'):
+    for line in profile_prompt.split("\n"):
         stripped = line.strip()
         # Capture lines from TECHNICAL SKILLS section
-        if 'TECHNICAL SKILLS' in stripped:
+        if "TECHNICAL SKILLS" in stripped:
             capture = True
             continue
-        if capture and stripped and not stripped.startswith('COMPETITIVE'):
+        if capture and stripped and not stripped.startswith("COMPETITIVE"):
             anchor_parts.append(stripped)
-        if 'COMPETITIVE' in stripped or 'KEY PROJECTS' in stripped:
+        if "COMPETITIVE" in stripped or "KEY PROJECTS" in stripped:
             capture = False
 
         # Always include TARGET ROLES line
-        if 'TARGET ROLES' in stripped:
-            roles_part = stripped.replace('TARGET ROLES (priority order, derived from resume evidence):', '').strip()
+        if "TARGET ROLES" in stripped:
+            roles_part = stripped.replace(
+                "TARGET ROLES (priority order, derived from resume evidence):", ""
+            ).strip()
             anchor_parts.append(roles_part)
 
     # Build anchor — cap at 300 chars to keep embedding focused
@@ -269,19 +285,21 @@ def _build_ce_query(profile_prompt: str) -> str:
     skills_line = ""
     batch_line = "2027"
 
-    for line in profile_prompt.split('\n'):
+    for line in profile_prompt.split("\n"):
         stripped = line.strip()
-        if 'TARGET ROLES' in stripped:
+        if "TARGET ROLES" in stripped:
             roles_line = stripped.replace(
-                'TARGET ROLES (priority order, derived from resume evidence):', ''
+                "TARGET ROLES (priority order, derived from resume evidence):", ""
             ).strip()
-        if 'TECHNICAL SKILLS' in stripped:
+        if "TECHNICAL SKILLS" in stripped:
             # grab the next non-empty line as skills summary
             skills_line = stripped
-        if 'GRADUATION' in stripped:
+        if "GRADUATION" in stripped:
             batch_line = stripped
 
-    roles_str = roles_line or "Software Engineer, Backend Engineer, Full Stack Developer"
+    roles_str = (
+        roles_line or "Software Engineer, Backend Engineer, Full Stack Developer"
+    )
 
     return (
         f"Internship or fresher full-time software engineering role. "
@@ -302,15 +320,21 @@ _JSON_RETRY_SUFFIX = (
 
 # ── NIM call helper ───────────────────────────────────────────────────────────
 def _nim_call(api_key: str, system_prompt: str, user_content: str) -> str:
-    """Create NIM client and call llama-3.3-70b. Returns cleaned JSON string."""
-    client = make_client(api_key)
-    raw = call_nim(client, system_prompt, user_content, model=NIM_SCORING_MODEL)
+    """
+    Call NIM llama-3.3-70b with dual-key rotation.
+    Uses call_nim_rotated() which switches keys on 429 instead of waiting 30s.
+    Returns cleaned JSON string.
+    """
+    raw = call_nim_rotated(
+        api_key, system_prompt, user_content, model=NIM_SCORING_MODEL
+    )
     return clean_json(raw)
 
 
 # =============================================================================
 # Shared helpers
 # =============================================================================
+
 
 def _safe_int(value, default: int = 0) -> int:
     try:
@@ -509,6 +533,7 @@ def _layer1_5_cross_encoder(ambiguous: list) -> tuple[list, list]:
 # Layer 2 — NIM scorer
 # =============================================================================
 
+
 def _score_batch_with_retries(
     api_key: str,
     batch: list,
@@ -555,7 +580,10 @@ def _score_batch_with_retries(
                 )
                 log.warning(
                     "  Batch %d attempt %d/%d: %s — retrying",
-                    batch_num, attempt, MAX_ATTEMPTS, last_err,
+                    batch_num,
+                    attempt,
+                    MAX_ATTEMPTS,
+                    last_err,
                 )
                 continue
 
@@ -567,7 +595,10 @@ def _score_batch_with_retries(
             last_err = e
             log.warning(
                 "  Batch %d attempt %d/%d: bad JSON (%s) — retrying",
-                batch_num, attempt, MAX_ATTEMPTS, e,
+                batch_num,
+                attempt,
+                MAX_ATTEMPTS,
+                e,
             )
 
         except Exception as e:
@@ -577,19 +608,27 @@ def _score_batch_with_retries(
                 wait = 60 if attempt == 1 else 30
                 log.info(
                     "  Batch %d attempt %d/%d: rate limited — waiting %ds",
-                    batch_num, attempt, MAX_ATTEMPTS, wait,
+                    batch_num,
+                    attempt,
+                    MAX_ATTEMPTS,
+                    wait,
                 )
                 time.sleep(wait)
             elif "timeout" in msg or "deadline" in msg:
                 log.warning(
                     "  Batch %d attempt %d/%d: timeout — retrying",
-                    batch_num, attempt, MAX_ATTEMPTS,
+                    batch_num,
+                    attempt,
+                    MAX_ATTEMPTS,
                 )
                 time.sleep(5)
             else:
                 log.error(
                     "  Batch %d attempt %d/%d: %s",
-                    batch_num, attempt, MAX_ATTEMPTS, e,
+                    batch_num,
+                    attempt,
+                    MAX_ATTEMPTS,
+                    e,
                 )
                 time.sleep(3)
 
@@ -613,11 +652,13 @@ def _layer2_nim_score(
 
     log.info(
         "Layer 2 NIM: scoring %d jobs | %d batches | model=%s",
-        len(jobs), total_batches, NIM_SCORING_MODEL,
+        len(jobs),
+        total_batches,
+        NIM_SCORING_MODEL,
     )
 
     for i in range(0, len(jobs), batch_size):
-        batch = jobs[i: i + batch_size]
+        batch = jobs[i : i + batch_size]
         batch_num = i // batch_size + 1
         log.info("  Batch %d/%d (%d jobs)...", batch_num, total_batches, len(batch))
 
@@ -630,7 +671,8 @@ def _layer2_nim_score(
             unscored_count += len(batch)
             log.warning(
                 "  Batch %d: excluded %d jobs — see logs/unscored_jobs.json",
-                batch_num, len(batch),
+                batch_num,
+                len(batch),
             )
             if batch_num < total_batches:
                 time.sleep(INTER_BATCH_SLEEP)
@@ -674,6 +716,7 @@ def _layer2_nim_score(
 # Layer 3 — NIM verifier (edge cases only: HIGH with score 65–75)
 # =============================================================================
 
+
 def _layer3_verify_edge_cases(all_scored: list, api_key: str) -> list:
     """
     Splits scored jobs:
@@ -701,14 +744,16 @@ def _layer3_verify_edge_cases(all_scored: list, api_key: str) -> list:
         log.info(
             "Layer 3: 0 edge-case HIGHs (65-75) — NIM verifier skipped. "
             "%d trusted HIGH, %d MEDIUM/LOW pass-through.",
-            len(confirmed_high), len(non_high),
+            len(confirmed_high),
+            len(non_high),
         )
         return confirmed_high + non_high
 
     log.info(
         "Layer 3 NIM verifier: checking %d edge-case HIGHs (65-75) | "
         "%d trusted HIGHs skip verifier",
-        len(edge_cases), len(confirmed_high),
+        len(edge_cases),
+        len(confirmed_high),
     )
 
     # v2.2: verifier prompt is also profile-driven
@@ -757,7 +802,10 @@ def _layer3_verify_edge_cases(all_scored: list, api_key: str) -> list:
                 downgraded += 1
                 log.info(
                     "  Downgraded: %s @ %s -> %s (conf=%d%%)",
-                    job["title"], job["company"], new_p, conf,
+                    job["title"],
+                    job["company"],
+                    new_p,
+                    conf,
                 )
                 non_high.append(job)
             else:
@@ -765,13 +813,17 @@ def _layer3_verify_edge_cases(all_scored: list, api_key: str) -> list:
                 confirmed_high.append(job)
                 log.info(
                     "  Confirmed HIGH: %s @ %s (conf=%d%%)",
-                    job["title"], job["company"], conf,
+                    job["title"],
+                    job["company"],
+                    conf,
                 )
 
         log.info(
             "Layer 3 done: %d edge-cases checked | %d downgraded | "
             "%d total confirmed HIGH",
-            len(edge_cases), downgraded, len(confirmed_high),
+            len(edge_cases),
+            downgraded,
+            len(confirmed_high),
         )
 
     except Exception as e:
@@ -784,6 +836,7 @@ def _layer3_verify_edge_cases(all_scored: list, api_key: str) -> list:
 # =============================================================================
 # Public entry point — identical signature to old scorer.py
 # =============================================================================
+
 
 def score_jobs_with_llm(
     jobs: list,
@@ -849,8 +902,13 @@ def score_jobs_with_llm(
         "Scoring complete — %d relevant from %d jobs "
         "(L1-auto=%d | L1-bge-reject=%d | L1.5-ce-reject=%d | "
         "L2-nim-band=%d | L2-scored=%d | unscored->logs=%d)",
-        len(results), len(jobs),
-        len(auto_matched), bge_rejected, ce_rejected,
-        len(to_nim), len(nim_scored), unscored_count,
+        len(results),
+        len(jobs),
+        len(auto_matched),
+        bge_rejected,
+        ce_rejected,
+        len(to_nim),
+        len(nim_scored),
+        unscored_count,
     )
     return results

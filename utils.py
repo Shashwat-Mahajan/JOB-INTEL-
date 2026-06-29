@@ -1,5 +1,12 @@
 """
 utils.py — profile loading, intra-batch dedup, config helpers.
+
+v2.2 changes:
+  - _FALLBACK_SEARCH_KEYWORDS: generic SDE/backend (not AI/ML specific)
+  - get_scoring_prompt(): fallback uses generic SDE roles, not GenAI/ML
+  - get_verifier_system_prompt(): removed hardcoded "AI/ML" — now fully
+    profile-driven using the candidate's actual scoring prompt
+  - get_search_keywords(): unchanged in logic, fallback updated
 """
 
 import json
@@ -8,6 +15,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 PROFILE_PATH = Path(__file__).parent / "config" / "profile.json"
+
 
 def setup_logging(log_file: Path) -> None:
     log_file.parent.mkdir(parents=True, exist_ok=True)
@@ -37,27 +45,61 @@ def load_profile(path: Path | None = None) -> dict:
 def get_scoring_prompt(profile: dict | None = None) -> str:
     """Return the LLM scoring prompt built from the resume profile."""
     profile = profile if profile is not None else load_profile()
-    prompt  = profile.get("_scoring_prompt", "")
+    prompt = profile.get("_scoring_prompt", "")
     if prompt:
         return prompt
 
-    name  = profile.get("name", "Candidate")
+    # Fallback — generic, not AI/ML specific
+    name = profile.get("name", "Candidate")
     batch = profile.get("graduation_batch", "2027")
-    roles = ", ".join(profile.get("target_roles", ["GenAI Engineer", "ML Engineer"]))
+    roles = profile.get("target_roles", [])
+    roles_str = (
+        ", ".join(roles) if roles else "Software Engineer, SDE, Backend Engineer"
+    )
+    max_exp = profile.get("max_experience_years", 2)
+
     return (
         f"CANDIDATE: {name}\n"
-        f"GRADUATION: {batch} batch | EXPERIENCE: fresher (0-2 years)\n"
-        f"TARGET ROLES: {roles}\n"
-        f"INCLUDE: full-time jobs AND paid internships (PPO preferred).\n"
-        f"VETOES: IT outsourcing without AI/ML title, 3+ years required, unpaid internships."
+        f"GRADUATION: {batch} batch | EXPERIENCE: fresher (0-{max_exp} years)\n"
+        f"TARGET ROLES: {roles_str}\n"
+        f"INCLUDE: full-time jobs AND paid internships.\n"
+        f"VETOES: IT outsourcing without engineering title, {max_exp + 1}+ years required, "
+        f"non-technical roles."
     )
 
 
 def get_verifier_system_prompt(profile: dict | None = None) -> str:
-    """Build the second-pass verifier prompt from the live resume profile."""
-    profile  = profile if profile is not None else load_profile()
+    """
+    Build the second-pass verifier prompt from the live resume profile.
+
+    v2.2: removed hardcoded 'AI/ML' references — verifier now checks against
+    the candidate's actual target roles and tech stack, not a generic AI/ML filter.
+    Works correctly for Java/Backend engineers, AI engineers, or any other profile.
+    """
+    profile = profile if profile is not None else load_profile()
     candidate = get_scoring_prompt(profile)
-    batch    = profile.get("graduation_batch", "2027")
+    batch = profile.get("graduation_batch", "2027")
+    max_exp = profile.get("max_experience_years", 2)
+
+    # Extract target roles for explicit mention in verifier
+    target_roles = profile.get("target_roles", [])
+    roles_str = (
+        ", ".join(target_roles)
+        if target_roles
+        else "Software Engineer, Backend Engineer, SDE"
+    )
+
+    # Extract hard vetoes for explicit mention
+    hard_vetoes = profile.get("hard_vetoes", [])
+    veto_lines = ""
+    if hard_vetoes:
+        veto_items = []
+        for v in hard_vetoes:
+            if isinstance(v, dict):
+                veto_items.append(f"- {v.get('veto', '')}")
+            else:
+                veto_items.append(f"- {v}")
+        veto_lines = "\nHARD VETOES (auto-SKIP these):\n" + "\n".join(veto_items)
 
     return f"""You are a strict senior recruiter doing a SECOND OPINION on listings already scored HIGH.
 Be MORE critical than the first pass. Judge authenticity — reject vague, recycled, or misleading posts.
@@ -65,16 +107,23 @@ Be MORE critical than the first pass. Judge authenticity — reject vague, recyc
 CANDIDATE PROFILE (from resume):
 {candidate}
 
-SCOPE: Score BOTH full-time jobs AND internships. Paid internships and PPO roles are valid HIGH matches.
+TARGET ROLES: {roles_str}
+{veto_lines}
 
-For each listing answer:
-1. Does this GENUINELY involve AI/ML/backend/software engineering work (not keyword stuffing)?
-2. Is the company a product company, AI startup, or reputable tech employer (not generic IT services)?
-3. Is this truly open to someone graduating {batch} (fresher, intern, 0-2 years, campus, or explicit intern role)?
+SCOPE: Score BOTH full-time jobs AND internships.
+Paid internships with a stipend or PPO potential are valid HIGH matches.
+
+For each listing answer ALL THREE questions:
+1. Does this GENUINELY involve hands-on engineering work matching the candidate's
+   target roles and tech stack listed above (not keyword stuffing, not vague "tech" roles)?
+2. Is the company a product company, reputable startup, or good tech employer
+   (not IT services/outsourcing/body-shopping)?
+3. Is this truly open to someone graduating {batch}
+   (fresher, intern, 0-{max_exp} years, campus hire, or explicit intern role)?
 
 ALL THREE yes → keep HIGH.
 Any doubt → downgrade to MEDIUM.
-Clearly wrong, scam-like, unpaid (when veto applies), or off-profile → SKIP.
+Clearly wrong, scam-like, unpaid, or matches a hard veto above → SKIP.
 
 Return ONLY valid JSON array:
 [{{"job_id":"...","verified_priority":"HIGH|MEDIUM|LOW|SKIP","confidence":0-100,"posting_type":"job|internship|unknown","reason":"one sentence"}}]
@@ -83,19 +132,11 @@ Return ONLY valid JSON array:
 
 def deduplicate_batch(jobs: list) -> list:
     """
-    FIX 5: Cross-source dedup that catches same job posted across multiple
-    sources (e.g. WebBoost appearing 3x from LinkedIn + Remotive + career portal).
-
-    Old version keyed on job_id first, then fell back to title|company only
-    when job_id was missing. Jobs from different sources get different job_ids,
-    so the title|company fallback never fired — duplicates slipped through.
-
-    New approach: always register both job_id and title|company as keys,
-    pointing to the same record. A second encounter on either key deduplicates.
+    Cross-source dedup that catches same job posted across multiple sources.
     Keeps the richest record (longest description) per logical role.
     """
-    best_by_id:      dict[str, dict] = {}   # job_id  → job
-    best_by_title:   dict[str, dict] = {}   # title|company → job
+    best_by_id: dict[str, dict] = {}
+    best_by_title: dict[str, dict] = {}
 
     def _title_key(job: dict) -> str:
         t = (job.get("title") or "").strip().lower()
@@ -103,27 +144,26 @@ def deduplicate_batch(jobs: list) -> list:
         return f"{t}|{c}"
 
     def _is_richer(candidate: dict, existing: dict) -> bool:
-        return len(candidate.get("description") or "") > len(existing.get("description") or "")
+        return len(candidate.get("description") or "") > len(
+            existing.get("description") or ""
+        )
 
     for job in jobs:
-        jid   = (job.get("job_id") or "").strip()
-        tkey  = _title_key(job)
+        jid = (job.get("job_id") or "").strip()
+        tkey = _title_key(job)
         valid_tkey = tkey != "|" and bool(tkey.replace("|", "").strip())
 
-        # Check if we've already seen this job via title|company
         if valid_tkey and tkey in best_by_title:
             existing = best_by_title[tkey]
             if _is_richer(job, existing):
-                # Replace with richer version; keep both index entries consistent
                 best_by_title[tkey] = job
                 if jid:
                     best_by_id[jid] = job
                 old_jid = (existing.get("job_id") or "").strip()
                 if old_jid and old_jid in best_by_id:
                     best_by_id[old_jid] = job
-            continue  # already registered — skip re-registration
+            continue
 
-        # Check if we've seen this job_id before
         if jid and jid in best_by_id:
             existing = best_by_id[jid]
             if _is_richer(job, existing):
@@ -133,13 +173,11 @@ def deduplicate_batch(jobs: list) -> list:
                     best_by_title[old_tkey] = job
             continue
 
-        # New job — register under both keys
         if jid:
             best_by_id[jid] = job
         if valid_tkey:
             best_by_title[tkey] = job
 
-    # Collect unique objects (both dicts may point to same object)
     seen_object_ids: set = set()
     result: list = []
     for job in list(best_by_id.values()) + list(best_by_title.values()):
@@ -160,15 +198,14 @@ def load_seen(path: Path) -> dict:
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-        # Handle old format (plain list) — migrate to dict
         if isinstance(data, list):
             today = date.today().isoformat()
-            data  = {jid: today for jid in data}
+            data = {jid: today for jid in data}
 
-        # Expire jobs older than 7 days
-        cutoff  = (date.today() - timedelta(days=7)).isoformat()
-        cleaned = {jid: seen_date for jid, seen_date in data.items()
-                   if seen_date >= cutoff}
+        cutoff = (date.today() - timedelta(days=7)).isoformat()
+        cleaned = {
+            jid: seen_date for jid, seen_date in data.items() if seen_date >= cutoff
+        }
 
         expired = len(data) - len(cleaned)
         if expired > 0:
@@ -213,27 +250,39 @@ def load_config(path: Path) -> dict:
         )
     return json.loads(path.read_text(encoding="utf-8"))
 
-# ── Profile-driven search keywords ───────────────────────────────────────────
-# Generates LinkedIn/Naukri search queries directly from profile.json's
-# target_roles, so fetch-stage queries and scoring-stage judgment both stay
-# anchored to the same resume source of truth instead of drifting apart
-# (previously linkedin.py had its own hardcoded LINKEDIN_SEARCHES list that
-# had no connection to profile.json at all).
 
+# ── Profile-driven search keywords ───────────────────────────────────────────
+
+# Generic fallback — not AI/ML specific.
+# Used only when profile.json has no target_roles.
 _FALLBACK_SEARCH_KEYWORDS = [
-    "generative AI engineer", "LLM engineer", "machine learning engineer",
-    "AI engineer intern", "software engineer AI", "backend engineer python",
-    "SDE fresher", "data science intern",
+    "software engineer fresher india",
+    "software engineer intern india",
+    "SDE fresher india",
+    "SDE intern india",
+    "backend engineer fresher india",
+    "backend developer intern india",
+    "full stack developer fresher india",
+    "java developer fresher india",
+    "python developer fresher india",
 ]
+
 
 def get_search_keywords(profile: dict | None = None) -> list[str]:
     """
     Build search keywords from profile.json's target_roles.
-    Falls back to a small hardcoded list if no profile/target_roles exist,
-    so the system never has zero search terms.
+
+    For each target role, generates:
+      - "{role}" (base search)
+      - "{role} intern" (internship variant)
+      - "{role} fresher" (fresher variant)
+      - "{role} india" (location-scoped variant)
+
+    Falls back to _FALLBACK_SEARCH_KEYWORDS if no profile/target_roles exist.
     """
     profile = profile if profile is not None else load_profile()
     roles = profile.get("target_roles", [])
+
     if not roles:
         logging.getLogger(__name__).warning(
             "No target_roles in profile.json — using fallback search keywords"
@@ -248,13 +297,24 @@ def get_search_keywords(profile: dict | None = None) -> list[str]:
         keywords.append(role)
         keywords.append(f"{role} intern")
         keywords.append(f"{role} fresher")
+        keywords.append(f"{role} india")
 
     # de-dupe while preserving order
-    seen = set()
-    out = []
+    seen: set = set()
+    out: list = []
     for k in keywords:
         kl = k.lower()
         if kl not in seen:
             seen.add(kl)
             out.append(k)
-    return out or _FALLBACK_SEARCH_KEYWORDS
+
+    if not out:
+        return _FALLBACK_SEARCH_KEYWORDS
+
+    logging.getLogger(__name__).info(
+        "Search keywords built from %d target_roles → %d keywords: %s...",
+        len(roles),
+        len(out),
+        ", ".join(out[:4]),
+    )
+    return out
