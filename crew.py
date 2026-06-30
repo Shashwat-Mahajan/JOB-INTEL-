@@ -1,6 +1,14 @@
 """
 crew.py — CrewAI 1.x pipeline.
 
+v2.3 changes vs v2.2:
+  - build_crew() now calls register_keys_from_config(cfg) itself, in addition
+    to main.py doing it. This means BOTH keys reach nim_client's pool even if
+    build_crew() is ever invoked directly (tests, a different entrypoint, etc.)
+    without going through main.py first. Safe/idempotent — add_key() ignores
+    duplicates.
+  - No other logic changed.
+
 v2.2 changes vs v2.1:
   - _get_llm(): model upgraded to llama-3.3-70b-instruct (fixes agent loop bug)
   - Agent backstories and task descriptions are now profile-agnostic
@@ -19,7 +27,7 @@ import logging
 from pathlib import Path
 from datetime import date
 
-from nim_client import make_client, call_nim, clean_json
+from nim_client import make_client, call_nim, clean_json, register_keys_from_config
 
 log.info("nim_client imported")
 from crewai import Agent, Task, Crew, Process, LLM
@@ -105,6 +113,13 @@ def _get_llm() -> LLM:
     Model: meta/llama-3.3-70b-instruct
       - Larger model reliably follows CrewAI ReAct format and stops after one tool call
       - llama-3.1-8b-instruct was too small and caused agent loop (tool called 4+ times)
+
+    v2.3: added timeout + num_retries. Without these, a single transient
+    connection error to NIM (which happens regularly on the free tier) was
+    enough to crash the ENTIRE crew with zero retry — LiteLLM's own default
+    retry window is sub-second and gives up almost immediately. This was
+    the cause of the "OpenAIException - Connection error" crash that killed
+    the whole run on the very first Scout LLM call.
     """
     import os
 
@@ -128,6 +143,8 @@ def _get_llm() -> LLM:
         base_url="https://integrate.api.nvidia.com/v1",
         temperature=0.1,
         max_tokens=512,
+        timeout=60,  # was unset — let a slow/stalled call actually finish instead of dying instantly
+        num_retries=5,  # was unset (effectively ~0 useful retries) — retry transient connection errors
     )
 
     log.info("CrewAI LLM object created successfully")
@@ -417,6 +434,16 @@ def build_crew(cfg: dict) -> Crew:
     log.info("=" * 60)
 
     _state["config"] = cfg
+
+    # Safety net: register both NIM keys into the shared pool here too.
+    # main.py already does this before calling build_crew(), but doing it
+    # again here (idempotent — add_key() skips duplicates) means score_jobs_tool
+    # and verify_jobs_tool always get dual-key rotation even if build_crew()
+    # is ever called from somewhere other than main.py (tests, alt entrypoints).
+    try:
+        register_keys_from_config(cfg)
+    except Exception:
+        log.exception("build_crew: failed to register NIM keys into key pool")
 
     log.info("Calling _get_llm()...")
     llm = _get_llm()

@@ -1,6 +1,37 @@
 """
 scorer.py — 4-layer hybrid scoring pipeline.
 
+v2.4 changes vs v2.3:
+  - Layer 2 concurrent batches now use call_nim_rotated_pinned() (via
+    _nim_call's new key_index param) instead of call_nim_rotated().
+    v2.3 had each concurrent batch thread call call_nim_rotated(), which
+    reads/rotates a SINGLE SHARED cursor in nim_client's key pool. Under
+    concurrency this let two threads converge on the same "current" key at
+    once (hammering one key with 2x traffic while the other sat idle), and
+    after a failure-triggered rotation the next thread would often follow
+    the failing thread onto the very same key it just rotated to — both
+    keys ping-ponging together instead of being used one-request-each in
+    parallel. That's what produced the lockstep timeout pattern in
+    production logs even with 2 valid keys configured.
+    Each batch now gets its own pinned key (key_index = batch index,
+    0-based), so batch 0 always starts on key 0, batch 1 always starts on
+    key 1, etc. — true one-request-per-key-in-flight under concurrency.
+  - _nim_call(), _score_batch_with_retries(), and the Layer-2 dispatcher
+    all now thread a key_index through to the pinned call. Layer 3's
+    (sequential, non-concurrent) verifier call still uses key_index=0,
+    which is fine since there's no concurrency there to collide with.
+
+v2.3 changes vs v2.2:
+  - Layer 2 (_layer2_nim_score) now dispatches all batches CONCURRENTLY
+    via a thread pool instead of looping sequentially with a 5s sleep
+    between each batch. Each batch still keeps its own retry/coverage-check
+    logic (_score_batch_with_retries) — only the outer loop became parallel.
+  - Worker count is read from nim_client's key pool size, so with 2 NIM
+    keys registered you get 2 batches in flight at once instead of 1.
+  - INTER_BATCH_SLEEP removed from the Layer 2 path.
+  - Results are reassembled in original batch order so logging/order stays
+    deterministic and unaffected by which thread finishes first.
+
 v2.2 changes vs v2.1:
   - SCORING_SYSTEM replaced with _build_scoring_system(profile) — no hardcoded AI/ML axes
   - _build_profile_anchor() now builds from CANDIDATE_PROFILE instead of hardcoded AI/ML terms
@@ -25,9 +56,11 @@ Layer 1.5 cross-encoder/ms-marco-MiniLM-L-6-v2  (cross-encoder, local CPU)
           Auto-calibrated p25 threshold.
           Above p25 → NIM Layer 2. Below → rejected.
 
-Layer 2   NIM llama-3.3-70b-instruct  (LLM-as-judge, batch scoring)
+Layer 2   NIM llama-3.3-70b-instruct  (LLM-as-judge, batch scoring, CONCURRENT, key-pinned)
           Scores cross-encoder survivors. Outputs HIGH/MEDIUM/LOW/SKIP.
           Uses profile-driven scoring axes — no hardcoded role weights.
+          Batches now run concurrently across the NIM key pool, each
+          batch pinned to its own key by index to avoid thread collisions.
 
 Layer 3   NIM llama-3.3-70b-instruct  (strict verifier, EDGE CASES ONLY)
           Runs only on HIGH jobs where relevance_score is 65–75.
@@ -52,10 +85,12 @@ import logging
 log = logging.getLogger(__name__)
 log.info("scorer imported")
 
+
 import json
 import logging
 import time
 from pathlib import Path
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 log.info("json imported , logging,time,pathlab")
 
@@ -68,12 +103,13 @@ from sentence_transformers import SentenceTransformer, CrossEncoder
 log.info("sentence_transformers imported successfully")
 log.info("sentence_transformers imported")
 
+
 from nim_client import (
-    make_client,
-    call_nim,
-    call_nim_rotated,
+    call_groq_rotated_pinned,
+    register_groq_keys_from_config,
+    groq_pool_size,
     clean_json,
-    NIM_SCORING_MODEL,
+    GROQ_FALLBACK_MODEL,
 )
 
 log.info("nim_client imported")
@@ -94,12 +130,15 @@ EDGE_CASE_HIGH_MAX = 75
 # ── Model names ───────────────────────────────────────────────────────────────
 EMBED_MODEL_NAME = "BAAI/bge-small-en-v1.5"
 CE_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L-6-v2"
-# NIM scoring model imported from nim_client: NIM_SCORING_MODEL
 
 # ── Scoring config ────────────────────────────────────────────────────────────
 MAX_ATTEMPTS = 2
 COVERAGE_MIN = 0.50
-INTER_BATCH_SLEEP = 5
+
+# Max concurrent Layer-2 batches in flight at once. Hard-capped even if the
+# key pool somehow grows large, so we don't accidentally hammer NIM with
+# 10+ simultaneous requests on a free-tier endpoint.
+MAX_CONCURRENT_BATCHES = 4
 
 # ── Paths ─────────────────────────────────────────────────────────────────────
 _BASE = Path(__file__).parent
@@ -319,15 +358,31 @@ _JSON_RETRY_SUFFIX = (
 
 
 # ── NIM call helper ───────────────────────────────────────────────────────────
-def _nim_call(api_key: str, system_prompt: str, user_content: str) -> str:
+def _nim_call(
+    api_key: str,
+    system_prompt: str,
+    user_content: str,
+    key_index: int = 0,
+) -> str:
     """
-    Call NIM llama-3.3-70b with dual-key rotation.
-    Uses call_nim_rotated() which switches keys on 429 instead of waiting 30s.
-    Returns cleaned JSON string.
+    v3.0: scoring (Layer 2) and verification (Layer 3) now run entirely on
+    Groq's 3-key pool instead of NIM.
+
+    api_key is kept only for signature compatibility.
+
+    Groq keys are taken from the pool registered via
+    register_groq_keys_from_config().
+
+    key_index pins concurrent callers (batches) to their own key.
     """
-    raw = call_nim_rotated(
-        api_key, system_prompt, user_content, model=NIM_SCORING_MODEL
+
+    raw = call_groq_rotated_pinned(
+        system_prompt,
+        user_content,
+        key_index=key_index,
+        model=GROQ_FALLBACK_MODEL,
     )
+
     return clean_json(raw)
 
 
@@ -530,7 +585,7 @@ def _layer1_5_cross_encoder(ambiguous: list) -> tuple[list, list]:
 
 
 # =============================================================================
-# Layer 2 — NIM scorer
+# Layer 2 — NIM scorer  (v2.4: concurrent batch dispatch, key-pinned per batch)
 # =============================================================================
 
 
@@ -542,7 +597,12 @@ def _score_batch_with_retries(
 ) -> tuple[list | None, bool]:
     """
     Scores a batch using NIM_SCORING_MODEL with retries.
-    scoring_system is now profile-driven — passed in from score_jobs_with_llm().
+    scoring_system is profile-driven — passed in from score_jobs_with_llm().
+
+    v2.4: batch_num (1-based) is used as the key_index for _nim_call, so
+    each concurrently-running batch is pinned to its own key instead of
+    racing other batches for a shared rotating cursor. (batch_num - 1 since
+    key_index is 0-based and batch_num is 1-based for logging.)
     """
     payload = [
         {
@@ -556,6 +616,7 @@ def _score_batch_with_retries(
     ]
     batch_ids = {j["job_id"] for j in batch}
     last_err = None
+    key_index = batch_num - 1
 
     for attempt in range(1, MAX_ATTEMPTS + 1):
         force_retry = attempt > 1
@@ -567,7 +628,7 @@ def _score_batch_with_retries(
             user_content += _JSON_RETRY_SUFFIX
 
         try:
-            raw = _nim_call(api_key, scoring_system, user_content)
+            raw = _nim_call(api_key, scoring_system, user_content, key_index=key_index)
             scores = json.loads(raw)
 
             returned_ids = {s.get("job_id", s.get("id", "")) for s in scores}
@@ -605,7 +666,7 @@ def _score_batch_with_retries(
             last_err = e
             msg = str(e).lower()
             if "429" in msg or "quota" in msg or "resource_exhausted" in msg:
-                wait = 60 if attempt == 1 else 30
+                wait = 20 if attempt == 1 else 10
                 log.info(
                     "  Batch %d attempt %d/%d: rate limited — waiting %ds",
                     batch_num,
@@ -621,7 +682,7 @@ def _score_batch_with_retries(
                     attempt,
                     MAX_ATTEMPTS,
                 )
-                time.sleep(5)
+                time.sleep(3)
             else:
                 log.error(
                     "  Batch %d attempt %d/%d: %s",
@@ -630,7 +691,7 @@ def _score_batch_with_retries(
                     MAX_ATTEMPTS,
                     e,
                 )
-                time.sleep(3)
+                time.sleep(2)
 
     log.error("  Batch %d: all attempts failed — last error: %s", batch_num, last_err)
     return None, False
@@ -642,29 +703,54 @@ def _layer2_nim_score(
     batch_size: int,
     scoring_system: str,
 ) -> tuple[list, int]:
-    """Returns (scored_non_skip, unscored_count). score_source='nim_llama'."""
+    """
+    Returns (scored_non_skip, unscored_count). score_source='nim_llama'.
+
+    v2.4: each batch is pinned to its own NIM key (key_index = batch index)
+    via _score_batch_with_retries -> _nim_call -> call_nim_rotated_pinned,
+    so concurrent batches no longer race for a shared rotating key cursor.
+    With 2 keys and 2+ batches in flight, batch 0 always tries key 0 first
+    and batch 1 always tries key 1 first — genuine one-request-per-key
+    parallelism instead of both threads converging onto whichever key
+    happens to be "current" at that instant.
+
+    Worker count is derived from the NIM key pool size (capped at
+    MAX_CONCURRENT_BATCHES) — with 2 keys registered, 2 batches run in
+    flight at once; with 1 key, this safely behaves like a sequential loop.
+    """
     if not jobs:
         return [], 0
 
-    nim_scored: list = []
-    unscored_count: int = 0
-    total_batches = -(-len(jobs) // batch_size)
+    batches = [jobs[i : i + batch_size] for i in range(0, len(jobs), batch_size)]
+    total_batches = len(batches)
 
-    log.info(
-        "Layer 2 NIM: scoring %d jobs | %d batches | model=%s",
-        len(jobs),
-        total_batches,
-        NIM_SCORING_MODEL,
-    )
+    workers = max(1, min(groq_pool_size(), MAX_CONCURRENT_BATCHES))
 
-    for i in range(0, len(jobs), batch_size):
-        batch = jobs[i : i + batch_size]
-        batch_num = i // batch_size + 1
+    # results[i] = (scores_or_None, succeeded_bool) for batches[i]
+    results: list = [None] * total_batches
+
+    def _run_batch(idx: int):
+        batch = batches[idx]
+        batch_num = idx + 1
         log.info("  Batch %d/%d (%d jobs)...", batch_num, total_batches, len(batch))
-
         scores, succeeded = _score_batch_with_retries(
             api_key, batch, batch_num, scoring_system
         )
+        return idx, scores, succeeded
+
+    with ThreadPoolExecutor(max_workers=workers) as executor:
+        futures = [executor.submit(_run_batch, i) for i in range(total_batches)]
+        for future in as_completed(futures):
+            idx, scores, succeeded = future.result()
+            results[idx] = (scores, succeeded)
+
+    nim_scored: list = []
+    unscored_count: int = 0
+
+    # Process in original batch order so logging stays deterministic
+    for idx, batch in enumerate(batches):
+        batch_num = idx + 1
+        scores, succeeded = results[idx]
 
         if not succeeded or scores is None:
             _log_unscored(batch, "all_attempts_failed")
@@ -674,8 +760,6 @@ def _layer2_nim_score(
                 batch_num,
                 len(batch),
             )
-            if batch_num < total_batches:
-                time.sleep(INTER_BATCH_SLEEP)
             continue
 
         score_map = {s.get("job_id", s.get("id", "")): s for s in scores}
@@ -706,9 +790,6 @@ def _layer2_nim_score(
 
         log.info("    -> %d relevant, %d skipped", passed, skipped)
 
-        if batch_num < total_batches:
-            time.sleep(INTER_BATCH_SLEEP)
-
     return nim_scored, unscored_count
 
 
@@ -723,6 +804,10 @@ def _layer3_verify_edge_cases(all_scored: list, api_key: str) -> list:
       confirmed_high : relevance_score >= 76  → trusted, skip verifier
       edge_cases     : HIGH with score 65–75  → send to NIM
       non_high       : MEDIUM / LOW           → pass through
+
+    This is a single sequential call (no concurrency), so key_index=0
+    (the _nim_call default) is fine — there's nothing else running at the
+    same time for it to collide with.
     """
     confirmed_high: list = []
     edge_cases: list = []
@@ -777,7 +862,7 @@ def _layer3_verify_edge_cases(all_scored: list, api_key: str) -> list:
             f"Return a JSON array with exactly {len(edge_cases)} objects.\n"
             f"{json.dumps(payload)}\nJSON only."
         )
-        raw = _nim_call(api_key, verifier_system, user_content)
+        raw = _nim_call(api_key, verifier_system, user_content, key_index=0)
         results = json.loads(raw)
 
         result_map = {r["job_id"]: r for r in results}
@@ -848,9 +933,14 @@ def score_jobs_with_llm(
 
     Layer 1   BGE bi-encoder       → auto-match / ambiguous / auto-reject
     Layer 1.5 Cross-encoder        → re-ranks ambiguous, auto-calibrated p25 threshold
-    Layer 2   NIM llama-3.3-70b    → intent-scores ambiguous survivors (profile-driven)
+    Layer 2   NIM llama-3.3-70b    → intent-scores ambiguous survivors (profile-driven,
+                                      CONCURRENT, key-pinned per batch)
     Layer 3   NIM llama-3.3-70b    → verifies edge-case HIGHs (score 65-75) only
 
+    v2.4: Layer 2 batches run concurrently across the NIM key pool, each
+    pinned to its own key by batch index, instead of racing on a shared
+    rotating cursor (fixes thread-collision timeouts seen in v2.3).
+    v2.3: Layer 2 batches run concurrently across the NIM key pool.
     v2.2: all prompts and anchors are derived from the loaded candidate profile.
     No hardcoded AI/ML role weights — works correctly for any engineering profile.
     """
@@ -865,7 +955,7 @@ def score_jobs_with_llm(
     # Layer 1.5 — Cross-encoder (query now profile-driven)
     to_nim, _ = _layer1_5_cross_encoder(ambiguous)
 
-    # Layer 2 — NIM (scoring system now profile-driven)
+    # Layer 2 — NIM (scoring system now profile-driven, dispatched concurrently, key-pinned)
     nim_scored: list = []
     unscored_count: int = 0
 

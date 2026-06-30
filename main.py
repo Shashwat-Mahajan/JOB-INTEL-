@@ -1,11 +1,22 @@
 """
 main.py — CrewAI pipeline entry point.
 
+v2.4 changes:
+  - Fallback keywords removed entirely. No more _build_fallback_keywords().
+    A profile.json is now REQUIRED — if it's missing, the run fails fast
+    with a clear message instead of silently falling back to generic
+    SDE/backend keywords. Run setup_profile.py first if you see this error.
+  - include_internships block now ONLY derives intern keywords from
+    profile target_roles. No generic fallback intern keywords either.
+
+v2.3 changes:
+  - Registers nvidia_nim_api_key / nvidia_nim_api_key_2 from config.json (or env)
+    into nim_client's key pool via register_keys_from_config(), BEFORE build_crew()
+    is called. This is what actually activates dual-key rotation/concurrency in
+    nim_client.py.
+
 v2.2 changes:
   - DEFAULT_KEYWORDS removed — no more hardcoded AI/ML fallback keywords
-  - _build_fallback_keywords() derives generic SDE/backend/intern keywords
-  - include_internships block now derives intern keywords from profile target_roles
-    instead of appending from hardcoded DEFAULT_KEYWORDS
   - Duplicate nvidia_nim_api_key validation block removed
 """
 
@@ -44,32 +55,10 @@ log = logging.getLogger(__name__)
 log.info("Logger initialized: writing to %s", LOGS)
 
 
-def _build_fallback_keywords() -> list[str]:
-    """
-    Generic SDE/backend/fullstack keywords used ONLY when no profile.json exists.
-    Not AI/ML specific — works for any engineering fresher.
-    """
-    return [
-        "software engineer fresher india",
-        "software engineer intern india",
-        "SDE fresher 2027 india",
-        "SDE intern india",
-        "backend engineer fresher india",
-        "backend developer intern india",
-        "full stack developer fresher india",
-        "full stack developer intern india",
-        "java developer fresher india",
-        "java developer intern india",
-        "python developer fresher india",
-        "python developer intern india",
-        "web developer fresher india",
-        "web developer intern india",
-    ]
-
-
 def _default_config() -> dict:
     return {
         "nvidia_nim_api_key": os.getenv("NVIDIA_NIM_API_KEY", ""),
+        "nvidia_nim_api_key_2": os.getenv("NVIDIA_NIM_API_KEY_2", ""),
         "email_enabled": os.getenv("EMAIL_ENABLED", "false").lower() == "true",
         "email_from": os.getenv("EMAIL_FROM", ""),
         "email_to": os.getenv("EMAIL_TO", ""),
@@ -118,62 +107,71 @@ def main():
         )
         raise SystemExit(1)
 
-    profile = load_profile()
-    if profile:
-        cfg["profile"] = profile
-        log.info(
-            f"Profile loaded: {profile.get('name', 'unknown')} "
-            f"({profile.get('graduation_batch', '')} batch)"
+    # ── Register all available NIM keys into the shared key pool ─────────────
+    # This is what activates rotation + concurrent batch scoring in nim_client.py.
+    # Without this call, cfg["nvidia_nim_api_key_2"] just sits in the dict unused.
+    try:
+        from nim_client import register_keys_from_config
+
+        register_keys_from_config(cfg)
+
+        from nim_client import register_groq_keys_from_config
+        register_groq_keys_from_config(cfg)
+    except Exception:
+        log.exception(
+            "Failed to register NIM keys into key pool — continuing with single-key mode"
         )
-    else:
-        log.warning("config/profile.json not found — run: python setup_profile.py")
 
-    # ── Build search keywords ─────────────────────────────────────────────────
+    # ── Profile is now REQUIRED — no more generic fallback keywords ──────────
+    profile = load_profile()
+    if not profile:
+        log.error(
+            "config/profile.json not found. A profile is now required — "
+            "there is no generic keyword fallback anymore. "
+            "Run: python setup_profile.py"
+        )
+        raise SystemExit(1)
+
+    cfg["profile"] = profile
+    log.info(
+        f"Profile loaded: {profile.get('name', 'unknown')} "
+        f"({profile.get('graduation_batch', '')} batch)"
+    )
+
+    # ── Build search keywords — always profile-driven, no fallback ───────────
     if not cfg.get("search_keywords"):
-        if profile:
-            cfg["search_keywords"] = get_search_keywords(profile)
-            log.info(
-                f"Using {len(cfg['search_keywords'])} profile-driven search keywords "
-                f"derived from target_roles in profile.json"
-            )
-        else:
-            cfg["search_keywords"] = _build_fallback_keywords()
-            log.info(
-                "No profile found — using generic SDE/backend fallback keywords. "
-                "Run setup_profile.py for profile-specific keywords."
-            )
+        cfg["search_keywords"] = get_search_keywords(profile)
+        log.info(
+            f"Using {len(cfg['search_keywords'])} profile-driven search keywords "
+            f"derived from target_roles in profile.json"
+        )
 
-    # ── Ensure intern keywords are profile-driven, not AI-hardcoded ──────────
+    if not cfg["search_keywords"]:
+        log.error(
+            "search_keywords is empty after deriving from profile.json. "
+            "Check that profile.json has a non-empty 'target_roles' list."
+        )
+        raise SystemExit(1)
+
+    # ── Ensure intern keywords exist when internships are wanted ─────────────
+    # Derived ONLY from profile target_roles now — no generic fallback list.
     if cfg.get("include_internships", True):
         intern_kw = [k for k in cfg["search_keywords"] if "intern" in k.lower()]
         if len(intern_kw) < 3:
-            # Derive intern variants from profile target_roles, not hardcoded list
-            target_roles = profile.get("target_roles", []) if profile else []
-            if target_roles:
-                extra_intern = [
-                    f"{role} intern"
-                    for role in target_roles
-                    if f"{role} intern".lower()
-                    not in {k.lower() for k in cfg["search_keywords"]}
-                ]
-                cfg["search_keywords"] = list(
-                    dict.fromkeys(cfg["search_keywords"] + extra_intern)
-                )
-                log.info(
-                    f"Added {len(extra_intern)} intern keyword variants "
-                    f"from profile target_roles"
-                )
-            else:
-                # Fallback: add generic intern keywords
-                generic_intern = [
-                    k
-                    for k in _build_fallback_keywords()
-                    if "intern" in k.lower()
-                    and k.lower() not in {kw.lower() for kw in cfg["search_keywords"]}
-                ]
-                cfg["search_keywords"] = list(
-                    dict.fromkeys(cfg["search_keywords"] + generic_intern)
-                )
+            target_roles = profile.get("target_roles", [])
+            extra_intern = [
+                f"{role} intern"
+                for role in target_roles
+                if f"{role} intern".lower()
+                not in {k.lower() for k in cfg["search_keywords"]}
+            ]
+            cfg["search_keywords"] = list(
+                dict.fromkeys(cfg["search_keywords"] + extra_intern)
+            )
+            log.info(
+                f"Added {len(extra_intern)} intern keyword variants "
+                f"from profile target_roles"
+            )
 
     log.info(
         "Final search keywords (%d): %s",
@@ -189,9 +187,29 @@ def main():
     try:
         log.info("Starting crew.kickoff()")
         result = crew.kickoff()
-    except Exception:
-        log.exception("Crew crashed")
-        raise
+    except Exception as e:
+        # v2.4: one retry for transient connection errors that crash the whole
+        # run on the very first LLM call (seen in practice: NIM connection
+        # drops before any retry logic inside LiteLLM/CrewAI's LLM object
+        # kicks in). A genuine config/auth problem will fail again identically
+        # on retry and surface the real traceback.
+        err_str = str(e).lower()
+        transient = any(
+            s in err_str for s in ("connection error", "timeout", "timed out")
+        )
+        if transient:
+            log.warning(
+                "Crew crashed on a transient connection error — retrying once: %s", e
+            )
+            try:
+                crew = build_crew(cfg)
+                result = crew.kickoff()
+            except Exception:
+                log.exception("Crew crashed again on retry — giving up")
+                raise
+        else:
+            log.exception("Crew crashed")
+            raise
 
     log.info("Crew finished successfully")
     log.info(f"Result: {result}")
