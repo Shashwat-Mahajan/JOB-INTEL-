@@ -2,21 +2,43 @@
 setup_profile.py
 Run once: python setup_profile.py
 Reads your resume PDF + your current projects description,
-extracts a structured profile using Gemini, saves to config/profile.json.
+extracts a structured profile using Groq (Cerebras fallback), saves to config/profile.json.
 From then on, scorer.py uses profile.json automatically.
 
-MIGRATION (v2.0 → v2.1):
-  - Groq(api_key=...) → google.genai Client
-  - config key: groq_api_key → google_ai_api_key
-  - model: llama-3.3-70b-versatile → gemini-2.0-flash
-  - Everything else (prompts, build_scoring_prompt, main) UNCHANGED.
+MIGRATION (v2.1 → v3.1):
+  - google.genai Client / nim_client.make_client+call_nim → nim_client.call_llm_with_fallback
+  - config keys: GROQ_API_KEY_1/2/3, CEREBRAS_API_KEY_1/2/3 (see nim_client.register_keys_from_config)
+  - model: handled internally by nim_client (Groq primary, Cerebras fallback)
+  - Everything else (prompts, build_scoring_prompt, main structure) UNCHANGED.
 """
 
 import json
 import sys
 from pathlib import Path
 import fitz  # pymupdf
-from nim_client import make_client, call_nim, clean_json
+from nim_client import register_keys_from_config, call_llm_with_fallback, clean_json
+
+
+def strip_thinking_block(raw: str) -> str:
+    """
+    Some Groq models (e.g. qwen/qwen3.6-27b) are reasoning models that emit
+    a <think>...</think> block before the actual answer. nim_client's
+    clean_json() only strips markdown code fences, so we strip the thinking
+    block here first, locally, without touching nim_client.py.
+    """
+    if "<think>" in raw:
+        if "</think>" in raw:
+            raw = raw.split("</think>", 1)[1]
+        else:
+            # Thinking block never closed — response was truncated inside it,
+            # meaning max_tokens ran out before any JSON was produced.
+            raise ValueError(
+                "Model response was truncated inside a <think> block before "
+                "producing any JSON — increase max_tokens in the "
+                "call_llm_with_fallback() call in extract_profile_with_nim()."
+            )
+    return raw.strip()
+
 
 BASE = Path(__file__).parent
 CONFIG = BASE / "config" / "config.json"
@@ -160,6 +182,7 @@ Return ONLY a valid JSON object with EXACTLY this structure:
 }
 """
 
+
 def extract_text_from_pdf(pdf_path: Path) -> str:
     """Extract all text from a PDF using pymupdf."""
     doc = fitz.open(str(pdf_path))
@@ -171,10 +194,10 @@ def extract_text_from_pdf(pdf_path: Path) -> str:
 
 
 def extract_profile_with_nim(
-    resume_text: str, current_projects: str, api_key: str
+    resume_text: str, current_projects: str, cfg: dict
 ) -> dict:
-    """Send resume text to Gemini and extract structured profile."""
-    client = make_client(api_key)
+    """Send resume text to Groq (Cerebras fallback) and extract structured profile."""
+    register_keys_from_config(cfg)
 
     user_content = (
         f"RESUME TEXT:\n{resume_text}\n\n"
@@ -185,16 +208,20 @@ def extract_profile_with_nim(
         "resume text above, not generic examples."
     )
 
-    raw = call_nim(
-        client,
+    raw, provider = call_llm_with_fallback(
         system_prompt=EXTRACTION_PROMPT,
         user_content=user_content,
-        max_tokens=4096,
+        # Reasoning models (e.g. qwen/qwen3.6-27b on Groq) spend a chunk of
+        # this budget on a <think> block before the actual JSON, so this
+        # needs real headroom beyond the JSON payload alone.
+        max_tokens=8192,
     )
+    print(f"  (extracted via {provider})")
 
     try:
-        return json.loads(clean_json(raw))
-    except json.JSONDecodeError as e:
+        stripped = strip_thinking_block(raw)
+        return json.loads(clean_json(stripped))
+    except (json.JSONDecodeError, ValueError) as e:
         print(f"ERROR: JSON parse failed: {e}")
         print(f"Raw response (first 500 chars): {raw[:500]}")
         raise
@@ -302,11 +329,13 @@ def main():
         sys.exit(1)
 
     cfg = json.loads(CONFIG.read_text())
-    # CHANGED: groq_api_key → google_ai_api_key
-    api_key = cfg.get("nvidia_nim_api_key", "")
-    if not api_key:
-        print("ERROR: nvidia_nim_api_key missing from config.json")
-        print("Get a free key at: https://build.nvidia.com")
+
+    has_groq = bool(cfg.get("GROQ_API_KEY_1", "").strip())
+    has_cerebras = bool(cfg.get("CEREBRAS_API_KEY_1", "").strip())
+    if not has_groq and not has_cerebras:
+        print("ERROR: no GROQ_API_KEY_1 or CEREBRAS_API_KEY_1 found in config.json")
+        print("Get a free Groq key at: https://console.groq.com")
+        print("Get a free Cerebras key at: https://cloud.cerebras.ai")
         sys.exit(1)
 
     resume_path = None
@@ -330,8 +359,8 @@ def main():
     resume_text = extract_text_from_pdf(resume_path)
     print(f"Extracted {len(resume_text)} characters from resume.")
 
-    print("Sending to NIM (llama-3.3-70b) for profile extraction...")
-    profile = extract_profile_with_nim(resume_text, CURRENT_PROJECTS, api_key)
+    print("Sending to Groq (fallback: Cerebras) for profile extraction...")
+    profile = extract_profile_with_nim(resume_text, CURRENT_PROJECTS, cfg)
 
     profile["_scoring_prompt"] = build_scoring_prompt(profile)
 
